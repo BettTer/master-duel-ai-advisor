@@ -14,7 +14,7 @@ This project grew out of several months spent tuning a real Master Duel deck wit
 
 ### 1. Quoting card text from memory
 
-A small error in an effect can invalidate everything that follows. For example, the assistant once assumed that Branded Fusion's restriction started after the card resolved, which would allow a Synchro Summon before activating it. The Master Duel text applies the restriction to the entire turn in which Branded Fusion is activated.
+A small error in an effect can invalidate everything that follows. For example, Branded Opening restricts Extra Deck summons only for the rest of the turn after it resolves. If the assistant remembers it as a restriction on the entire turn, it may incorrectly rule out a Synchro Summon made before Branded Opening was activated.
 
 ### 2. Using the wrong banlist
 
@@ -89,7 +89,7 @@ Card text and images are copyrighted by KONAMI. This repository does not redistr
 
 ### 1. 凭记忆引用卡文
 
-卡片效果只要记错一点，后面的分析就可能全部建立在错误前提上。比如，AI 曾经认为「烙印融合」的限制在卡片结算后才生效，因此可以先进行同调召唤，再发动「烙印融合」。但 MD 卡文限制的是发动这张卡的整个回合。
+卡片效果只要记错一点，后面的分析就可能全部建立在错误前提上。比如，「烙印开幕」只会在结算后限制本回合从额外卡组进行的特殊召唤。如果 AI 把它记成对整个回合的限制，就可能错误地认为玩家不能先进行同调召唤，再发动「烙印开幕」。
 
 ### 2. 使用了错误的禁限表
 
