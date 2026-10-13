@@ -47,6 +47,7 @@ Run `mdcard` without arguments to see every command and filter.
 
 - **Card lookup.** Exact card text in Chinese, English and Japanese, the Chinese name shown in Master Duel, Master Duel rarity and banlist status (including announced changes that are not in effect yet), and filtered searches across the whole card pool.
 - **Deck import and checks.** Reads a deck and checks its size, copies, the Master Duel banlist and cards that are not in Master Duel. It also lists the deck's Extra Deck locks and which of them leave no Extra Deck monster to summon when used in the same turn, such as Junk Meister's first effect and Branded Fusion, and effects that search or summon a card the deck does not contain, such as Junk Meister's search for a "Junk" card in a deck with no other "Junk" card.
+- **Opening-hand odds.** The assistant reads the card text and writes down what each card needs in the opening hand and what it gives, for example Regenesis Archfiend needs another monster with 2500 ATK or DEF in the hand. You check those rules, and the tool counts every possible hand to give the exact chance of being able to start going first and going second, and how a change to the deck moves it.
 - **Rules for the assistant.** Look up card text before quoting it, use only the Master Duel banlist, search the whole card pool before recommending a card, and ask whether the player owns a UR before suggesting they craft it.
 - **Personal notes.** The assistant keeps your preferences and corrections in `~/.config/master-duel-ai-advisor/notes.md`, which updates never change. When a correction applies to every player, it offers to draft a GitHub issue so the fix can be added for everyone.
 
@@ -72,7 +73,7 @@ These are data and arithmetic problems, so this project does not train a model. 
 
 1. **Card lookup.** *Available.*
 2. **Deck import.** *Available.*
-3. **Consistency calculator.** Exact brick rates going first and going second, and how they change when a card is added or removed.
+3. **Consistency calculator.** *Available.*
 4. **Restriction and reference checks.** *Available.*
 5. **Deck review and build suggestions.** One report with conflicts, brick rate, weak slots and replacements, including the trade-offs and crafting cost of each change.
 6. **Theme-based deck building.** Start from a theme such as Ice Barrier and the engines commonly played with it.
@@ -153,6 +154,7 @@ npx -y -p master-duel-ai-advisor mdcard deck my-deck.ydk
 
 - **查卡。** 中、英、日三语的准确卡文，MD 中显示的中文卡名，MD 稀有度和禁限状态（包括已公布但尚未生效的变动），以及按条件筛选完整卡池。
 - **卡组导入和检查。** 读入卡组后检查张数、同名卡、MD 禁限和 MD 未实装的卡；还会列出卡组里"这回合只能从额外出 X"的锁，以及哪些锁同回合一起用时额外一只都出不来，比如「废品大王」的①和「烙印融合」；以及要检索或特殊召唤的卡在卡组里一张都没有的效果，比如卡组里没有别的「废品」卡，「废品大王」的检索就没有目标。
+- **起手能动率。** AI 先读卡文，写下每张卡在起手里需要什么、能带来什么，比如「再世之魔神 必密巴」需要手里还有一只攻或守是 2500 的怪兽。你确认这些规则后，工具把所有可能的起手逐一算一遍，给出先手、后手能动的准确概率，以及改动卡组后的变化。
 - **给 AI 的使用规则。** 引用卡文前先查原文，只用 MD 禁限表，推荐卡片前先筛完整卡池，建议合成 UR 前先确认玩家有没有这张卡。
 - **个人笔记。** AI 会把你的偏好和纠正记在 `~/.config/master-duel-ai-advisor/notes.md` 里，更新不会改动它。某条纠正对所有玩家都适用时，AI 会帮你起草一个 GitHub issue，让修正加进项目里。
 
@@ -178,7 +180,7 @@ npx -y -p master-duel-ai-advisor mdcard deck my-deck.ydk
 
 1. **查卡。** *已可使用。*
 2. **卡组导入。** *已可使用。*
-3. **稳定性计算器。** 精确计算先手、后手的卡手率，以及增加或减少一张卡后的变化。
+3. **稳定性计算器。** *已可使用。*
 4. **限制与引用检查。** *已可使用。*
 5. **卡组体检和构筑建议。** 一份报告列出冲突、卡手率、较弱的位置和替换方案，并说明每种调整的代价和合成成本。
 6. **按主题构筑。** 从一个主题（比如冰结界）和常与它搭配的轴开始。

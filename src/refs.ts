@@ -126,7 +126,7 @@ export function parseReferences(card: Card): Reference[] {
 
 const names = (card: Card) => [card.cn, card.md, card.sc, card.jp, card.en, ...card.aliases].filter(Boolean);
 
-function hasName(card: Card, name: string): boolean {
+export function hasName(card: Card, name: string): boolean {
   const target = norm(name);
   const treatedAs = card.descZh.match(/这个卡名在规则上当作「(.+?)」使用/);
   return names(card).some((cardName) => norm(cardName) === target) || (!!treatedAs && norm(treatedAs[1]) === target);

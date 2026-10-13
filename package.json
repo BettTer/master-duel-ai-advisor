@@ -1,6 +1,6 @@
 {
   "name": "master-duel-ai-advisor",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Yu-Gi-Oh! Master Duel deckbuilding tools for AI assistants: card lookup, deck import and checks, rarity and banlist, as an MCP server and a Claude skill",
   "license": "Apache-2.0",
   "type": "module",
@@ -31,15 +31,14 @@
     "skills"
   ],
   "scripts": {
-    "build": "npm run build:skill && npm run build:mcp",
-    "build:skill": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node18 \"--banner:js=#!/usr/bin/env node\" --outfile=skills/master-duel-ai-advisor/scripts/mdcard.mjs",
-    "build:mcp": "esbuild src/mcp.ts --bundle --platform=node --format=esm --target=node18 \"--banner:js=#!/usr/bin/env node\" --outfile=dist/mcp.mjs",
+    "build": "node scripts/build.mjs",
     "typecheck": "tsc",
     "test": "node --test \"test/**/*.test.ts\"",
     "prepublishOnly": "npm test && npm run typecheck && npm run build"
   },
   "devDependencies": {
     "@modelcontextprotocol/server": "^2.3.1",
+    "@n1xx1/ocgcore-wasm": "npm:@jsr/n1xx1__ocgcore-wasm@^0.1.4",
     "@types/node": "^22.20.5",
     "esbuild": "^0.28.2",
     "fflate": "^0.8.3",

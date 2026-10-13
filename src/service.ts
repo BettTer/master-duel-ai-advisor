@@ -2,14 +2,15 @@
 import { jstDate, loadBanlist, type Status } from "./banlist.ts";
 import { cardDataInfo, loadCards, reloadIfSourcesChanged } from "./cards.ts";
 import { checkDeck, readDeck, type Deck } from "./deck.ts";
-import { banlistNote, formatBanlist, formatDeck, formatLookup, formatSearch } from "./format.ts";
+import { banlistNote, formatBanlist, formatDeck, formatLookup, formatOdds, formatSearch } from "./format.ts";
 import type { Card } from "./cards.ts";
 import { analyzeLocks } from "./locks.ts";
+import { changeDeck, handOdds, parseRules } from "./odds.ts";
 import { archetypeLookup, inMasterDuel, searchCards, type SearchFilters } from "./query.ts";
 import { missingTargets } from "./refs.ts";
 
 const lookups = new WeakMap<Card[], ReturnType<typeof archetypeLookup>>();
-function archetypesOf(cards: Card[]) {
+export function archetypesOf(cards: Card[]) {
   if (!lookups.has(cards)) lookups.set(cards, archetypeLookup(cards));
   return lookups.get(cards)!;
 }
@@ -32,9 +33,7 @@ export async function search(filters: SearchFilters & { full?: boolean; limit?: 
   return formatSearch(searchCards(await loadCards(), filters), await loadBanlist(), filters);
 }
 
-/** Read a deck (card database URL, YDKE, .ydk or a plain list) and check it. */
-export async function importDeck(input: string): Promise<string> {
-  const banlist = await loadBanlist();
+export async function loadDeck(input: string): Promise<{ cards: Card[]; deck: Deck }> {
   let cards = await loadCards();
   let deck = await readDeck(input, cards);
   if (deck.unknown.length > 0) {
@@ -44,9 +43,30 @@ export async function importDeck(input: string): Promise<string> {
       deck = await readDeck(input, cards);
     }
   }
+  return { cards, deck };
+}
+
+/** Read a deck (card database URL, YDKE, .ydk or a plain list) and check it. */
+export async function importDeck(input: string): Promise<string> {
+  const banlist = await loadBanlist();
+  const { cards, deck } = await loadDeck(input);
   const inArchetype = archetypesOf(cards);
   const locks = analyzeLocks(distinctCards(deck, ["main", "extra"]), distinctCards(deck, ["extra"]), inArchetype);
   return formatDeck(deck, checkDeck(deck, cards, banlist), banlist, locks, missingTargets(deck, inArchetype));
+}
+
+/** Opening-hand odds from rules of what each card needs and gives, optionally compared with a changed deck. */
+export async function odds(input: string, rulesText: string, change?: string): Promise<string> {
+  const { cards, deck } = await loadDeck(input);
+  const inArchetype = archetypesOf(cards);
+  const rules = parseRules(rulesText, deck, cards);
+  const report = handOdds(deck, rules, inArchetype);
+  let changed = null;
+  if (change) {
+    const { deck: other, label } = changeDeck(deck, change, cards);
+    changed = { label, report: handOdds(other, parseRules(rulesText, other, cards), inArchetype) };
+  }
+  return formatOdds(deck, rules, report, changed, inArchetype);
 }
 
 /** The banlist as text, or null if it could never be downloaded. */

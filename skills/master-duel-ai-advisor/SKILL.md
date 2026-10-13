@@ -1,6 +1,6 @@
 ---
 name: master-duel-ai-advisor
-description: Yu-Gi-Oh! Master Duel deckbuilding advisor backed by verified card data. Looks up exact card text (Chinese, English and Japanese, plus the Chinese name shown in Master Duel), Master Duel rarity and the current Master Duel Forbidden & Limited list, and searches the whole card pool by kind, level, attribute, type and card text, and reads and checks whole decks (a deck URL from the official card database, YDKE, .ydk or a card list). Use it whenever the conversation involves Yu-Gi-Oh! / 游戏王 / 遊戯王 Master Duel cards or decks, including what a card does, whether it is Forbidden or Limited (禁限), how rare it is or whether to craft it (合成, UR, SR), which cards could fill a slot ("which Level 12 Synchros can I make", "有没有不取对象的除外"), reviewing a deck list, or weighing deckbuilding trade-offs (构筑, 取舍, 卡组), even when the user doesn't say "Master Duel" or ask for a lookup.
+description: Yu-Gi-Oh! Master Duel deckbuilding advisor backed by verified card data. Looks up exact card text (Chinese, English and Japanese, plus the Chinese name shown in Master Duel), Master Duel rarity and the current Master Duel Forbidden & Limited list, and searches the whole card pool by kind, level, attribute, type and card text, reads and checks whole decks (a deck URL from the official card database, YDKE, .ydk or a card list), and calculates exact opening-hand odds. Use it whenever the conversation involves Yu-Gi-Oh! / 游戏王 / 遊戯王 Master Duel cards or decks, including what a card does, whether it is Forbidden or Limited (禁限), how rare it is or whether to craft it (合成, UR, SR), which cards could fill a slot ("which Level 12 Synchros can I make", "有没有不取对象的除外"), reviewing a deck list, how often a deck bricks (卡手率, 先手能动), or weighing deckbuilding trade-offs (构筑, 取舍, 卡组), even when the user doesn't say "Master Duel" or ask for a lookup.
 ---
 
 # Master Duel AI Advisor
@@ -19,6 +19,8 @@ node scripts/mdcard.mjs search --kind 调整 --level 4 --attr 光 --race 魔法�
 node scripts/mdcard.mjs search --kind 速攻 --text "「阿不思的落胤」"
 node scripts/mdcard.mjs deck "https://www.db.yugioh-card.com/yugiohdb/member_deck.action?ope=1&cgid=…&dno=…"
 node scripts/mdcard.mjs deck "ydke://…"             # also a .ydk file path, or "-" to read a card list from standard input
+node scripts/mdcard.mjs odds deck.txt --rules rules.txt --change "-1 增殖的G, +1 增援"
+node scripts/mdcard.mjs plan deck.txt --hand "白龙之落胤,灰流丽,无限泡影,深渊之兽 德鲁伊鳞虫,超融合" --tiers tiers.txt
 node scripts/mdcard.mjs banlist --status limited1
 node scripts/mdcard.mjs banlist --upcoming        # an announced list that is not in effect yet
 node scripts/mdcard.mjs notes                     # the user's preferences and lessons (see below)
@@ -52,6 +54,87 @@ Material and condition wording is more uniform in the Chinese text (for example 
 
 A name that only partially matches one card is accepted but listed under "按部分卡名认的，请确认"; a name that matches several cards is listed with candidates. Fix those with full names before relying on the result.
 
+## Opening-hand odds
+
+`odds` counts every possible opening hand (5 cards going first, 6 going second) and reports how often the hand can start the deck's plays (能动) and how often it has two or more separate starts (两个以上动点, a rough measure of getting through one hand trap). The deck argument takes the same inputs as `deck`; `--rules` takes a file, `-` for standard input, or the rules text itself. `--change` also shows the odds after a change to the Main Deck.
+
+The tool does not know which cards start the deck. You write that from the card text, one line per card that matters:
+
+```
+废品大王：→ 能动
+增援：→ 拿 4星以下 战士族 怪兽
+再世之魔神 必密巴：要 手里 攻或守2500 怪兽 → 能动
+再世记：→ 拿 「再世」怪兽
+深渊之兽 赫界龙：→ 墓地有光暗；拿 「深渊之兽」怪兽 「深渊之兽 赫界龙」以外
+深渊之兽 德鲁伊鳞虫：要 墓地有光暗 → 能动
+后手：墓地有光暗
+```
+
+The format is `卡名：要 条件；条件 → 给；给`:
+
+- 条件 (what the card needs before it can be used from the opening hand): `手里 <卡>` another card that must be in the hand and stays there, such as a card revealed for a summon; `丢 <卡>` or `素材 <卡>` a card that leaves the hand to use this one, as a cost or as a Fusion Material from the hand; `通召` the turn's one Normal Summon; or a state you name, such as `墓地有光暗` or `场上有阿不思`. Leave out `要` when it needs nothing.
+- 给 (what using it gets you): `拿 <卡>` a card added from the Deck to the hand; a state; and `能动` when, from here, the deck can go on to a usable end board.
+- `后手：` lists states the opponent's first turn provides when going second, such as a LIGHT or DARK monster in their GY.
+- `<卡>` is written the way card text describes cards: 「卡名」, 「字段」怪兽, 4星以下, 4～8星, 光暗, 战士族, 攻或守2500, 攻守2500, 调整, 同调, 不能通常召唤, 魔法, 陷阱, 「X」以外.
+
+How to write the lines for any deck:
+
+1. Go through every Main Deck card and read its text with `card`. Hand traps and cards that only answer the opponent's board get no line.
+2. 要 comes from the text: summoning conditions, costs, reveals, targets and Normal Summons. A Level 5 or higher monster without its own way to Special Summon itself needs a tribute, so it is rarely usable alone. Going first, both GYs and the opponent's field are empty; a card that targets a monster in the GY needs a state that some other card gives.
+   A card whose effect fuses with cards from the hand is a two-card start: `赫之圣女 卡尔特西娅：要 通召；素材 光暗 怪兽 → 能动` (Granguignol is Cartesia + a LIGHT or DARK monster). When a card can get onto the field in more than one way, write one line per way; they are alternatives.
+3. 给 also comes from the text: what it searches, what it sends to the GY (a cost that sends a LIGHT monster gives `墓地有光暗`), and `能动` when the deck has a known next step toward an end board. A card that only adds a body gives a state, such as `场上有调整`, and the combination becomes a line on the Extra Deck monster it makes (`黑龙之艾克莉西娅：要 场上有调整；场上有6星 → 能动`).
+4. Describe searched and required cards the way the text does instead of listing names. The tool matches them against the deck and prints every match, which catches cards you would overlook, such as Bystials counting as monsters with 2500 ATK.
+5. Spell each state the same everywhere. The report flags a state that is needed but never given.
+6. Show the user the rules together with the numbers, point out the lines you were unsure about, and rerun after their corrections. When a correction would apply to other decks too (how to read a kind of effect), save it as a lesson and offer to draft an issue.
+
+The tool tries every order of using the hand's cards. Each card is used at most once per hand, through one of its lines. Searches need a copy left in the Deck. It does not model draws, interruptions, or states running out (two Bystials need two GY targets but one `墓地有光暗` covers both), so treat 两个以上动点 as an estimate. What a hand ends up with after an interruption is the route planner's job, not this one's.
+
+## Opening-hand route planner
+
+`plan` finds the best board a given opening hand can reach going first. It runs EDOPro's rules engine (ygopro-core with ProjectIgnis' card scripts), so every summon, cost, lock and once-per-turn limit is enforced by the real card scripts rather than by your reading of them. It tries every line from the hand and scores each board by tiers you write. It needs Node.js 22.13 or later, and the first run downloads the engine's card database and scripts (about 60 MB). The search runs on several threads and stops when every line has been tried, usually within 15 seconds; `--seconds` caps the time (default 30) and `--limit` the number of positions.
+
+The score is the value of what we can use on the opponent's turn: the monsters on the board, the spells and traps set before the turn ends, hand traps kept in the hand, and effects that work from the GY. Each interruption has a level, and each level is worth far more than the next, but not infinitely more:
+
+| Level | Weight | What it is | Examples |
+|---|---|---|---|
+| 第0级 | 15 | cannot be stopped by the opponent | Super Polymerization (no one can respond to it) |
+| 第一级 | 10 | negates the activation of any card's effect, monster, spell or trap (三色康) | Baronne de Fleur |
+| 1.5级 | 6 | not a negation, but more than one | Maxx "C" |
+| 第二级 | 4 | a negation with a condition: only monster effects, only Level 5 or higher, only a face-up card's effects | Clear Wing Synchro Dragon, Despian Luluwalilith, Ash Blossom, Infinite Impermanence |
+| 2.5级 | 2 | a negation with a very narrow condition | Stardust Dragon (destruction effects only) |
+| 第三级 | 1 | removes a card: banish, destroy, send to the GY, return to the hand or Deck, change to face-down, place in a spell & trap zone | Snake-Eyes Vengeance Dragon, Fydraulis Harmonia |
+
+These numbers come from the user's own choices: with the same materials Baronne beats Clear Wing, but they would not give up Clear Wing's two negations and an Ash Blossom kept in the hand for one Baronne; and Super Polymerization, which the opponent cannot respond to, is worth keeping over making a Baronne. Cards used up during the turn lose their value, so the search weighs costs by itself: it may summon a hand trap or discard it as a cost when what it gains is worth more. 第0级 and 1.5级 are for cards the three levels do not describe; ask the user before putting a new card there.
+
+Write one line per card, with exactly one level: the best thing it can do on the opponent's turn. Baronne de Fleur is 第一级, whatever else it can do.
+
+```
+超融合：第0级
+鲜花女男爵：第一级
+再世之导神 史莫特：第一级；要 另有 「再世」卡
+增殖的G：1.5级；在手里
+幻透翼同调龙：第二级×2
+三英之相剑师：第二级；自己回合
+星尘龙：2.5级
+混沌之双翼：第三级；召唤时
+赫焉龙 大木偶剧场龙：第二级；要 额外有 「死狱乡」怪兽；在场上或墓地
+灰流丽：第二级；在手里
+无限泡影：第二级
+天地再世：第三级
+```
+
+- `×2`: it can do it twice on the opponent's turn through separate effects (Clear Wing's ① and ② are each once per turn).
+- `自己回合`: its effect works only on our own turn (an Ignition Effect). Going first the opponent has nothing to hit this turn, so it counts a flat 1 for what it can do on our next turn (Three Champions on the board is better than nothing, but mostly it is a step in the route, searching Blazing Cartesia).
+- `召唤时`: its effect works only when it is summoned (Chaos Angel banishing a card). Going first that moment passes with nothing to hit, so it counts 0.
+- Where it counts: by default on the field. `在手里` for hand traps, which work from the hand. Traps and Quick-Play Spells must be set to be used on the opponent's turn, and Infinite Impermanence can only be activated from the hand while we control no cards, so those count on the field and are set automatically before the turn ends. `在墓地` or `在场上或墓地` for effects that work from the GY.
+- `要 另有 <卡>`: it needs another card in the hand or on the field, such as a card to send as its cost. `要 额外有 <卡>`: its value is summoning something from the Extra Deck, so it counts only while that card is still there (Granguignol needs a 「死狱乡」 monster kept for it).
+- `<卡>` uses the same card-text descriptions as `odds` (「卡名」, 「字段」怪兽, 光暗, 4星以下 and so on).
+- Each card name counts once, since these effects are usually once per turn by name: a second Ash Blossom in the hand adds nothing.
+
+How the search works, so you can explain its result: it starts going first with the opponent doing nothing, never activates the effects of cards valued in the hand on our own turn, never plays cards drawn by effects (they are random) except as a discard, sets the valued spells and traps, ends the turn, resolves the End Phase, and scores what the opponent faces. When two boards score the same, the shorter route comes first and the others are listed; mention the ties. The report lists the best board with its route, other boards, and each first action with whether its branch was searched completely. If a branch hit the limit, say that a better board may exist there.
+
+Show the user the tier lines together with the result and let them correct the tiers. Present the route as the engine found it; do not add steps it did not take.
+
 ## The user's notes
 
 Run `node scripts/mdcard.mjs notes` at the start of a Master Duel conversation. It prints the user's personal notes file (`~/.config/master-duel-ai-advisor/notes.md`, or `$MDAA_CONFIG_DIR/notes.md`), which skill updates never touch. Follow the preferences in it. They change how you answer and what you recommend, for example "mostly plays going second" or "has no UR points", but they never relax the data rules below.
@@ -70,6 +153,8 @@ Some lessons apply to every player: card data that is wrong, a rule in this skil
 ## Working rules
 
 **Read the deck before judging it.** When the user shares a deck, run `deck` first and mention the problems it reports. If they describe a deck in shorthand, write it out with full card names and run `deck` on that list.
+
+**Calculate consistency, don't estimate it.** For questions like how often the deck bricks, or whether cutting or adding a card helps, run `odds` (with `--change` for comparisons) instead of estimating, and show the rules you used.
 
 **Look up before you quote.** Run `card` for every card your advice depends on, and quote the sentence that matters. Small paraphrase errors flip conclusions. For example, Branded Fusion's restriction applies to the whole turn you activate it (这张卡发动的回合), so you cannot Synchro Summon first and activate it afterwards, which is exactly what a from-memory answer once claimed.
 

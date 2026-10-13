@@ -3,6 +3,8 @@ import { banStatus, cardKeys, entryKeys, jstDate, type BanStatus, type Banlist, 
 import type { Card } from "./cards.ts";
 import { SECTIONS, type Deck, type Section } from "./deck.ts";
 import type { Lock, LockPair, LockReport } from "./locks.ts";
+import { groupMatches, type Group, type Odds, type OddsReport, type Rules } from "./odds.ts";
+import { LEVELS, type Board, type PlanResult } from "./plan.ts";
 import type { Reference } from "./refs.ts";
 import { findCards, inMasterDuel, zhKinds } from "./query.ts";
 
@@ -202,5 +204,105 @@ export function formatDeck(
   lines.push(...formatLocks(locks.locks, locks.pairs), ...formatMissing(missing));
   lines.push("", "检查：", ...(issues.length > 0 ? issues.map((issue) => `  - ${issue}`) : ["  没有发现张数、禁限或实装方面的问题。"]));
   lines.push(`（${banlistNote(banlist)}）`);
+  return lines.join("\n");
+}
+
+const percent = (value: number) => `${(value * 100).toFixed(1)}%`;
+
+function oddsLines(report: OddsReport, second: string[], base?: OddsReport): string[] {
+  const change = (value: number, before?: number) => {
+    if (before === undefined) return "";
+    const points = (value - before) * 100;
+    return `（${points >= 0 ? "+" : "−"}${Math.abs(points).toFixed(1)}）`;
+  };
+  const line = (label: string, odds: Odds, before?: Odds, note = "") =>
+    `  ${label}：${percent(odds.playable)}${change(odds.playable, before?.playable)}，`
+    + `有两个以上动点 ${percent(odds.twoOrMore)}${change(odds.twoOrMore, before?.twoOrMore)}${note}`;
+  return [
+    line("先手 5 张", report.first, base?.first),
+    line("后手 6 张", report.second, base?.second, report.secondAlone ? `（假设：${second.join("、")}）` : ""),
+    ...(report.secondAlone ? [line("后手 6 张，不靠对方", report.secondAlone, base?.secondAlone ?? undefined)] : []),
+  ];
+}
+
+export function formatOdds(
+  deck: Deck,
+  rules: Rules,
+  report: OddsReport,
+  changed: { label: string; report: OddsReport } | null,
+  inArchetype: (card: Card, archetype: string) => boolean,
+): string {
+  const lines = [
+    `卡组：${deck.name || "（没有名字）"}（来源：${deck.source}）｜主卡组 ${report.size} 张`,
+    "",
+    "能动的概率（照下面的规则推，所有可能的起手逐一精确计算）：",
+    ...oddsLines(report, rules.second),
+  ];
+  if (changed) lines.push("", `改成 ${changed.label} 以后：`, ...oddsLines(changed.report, rules.second, report));
+  lines.push("", "规则（工具读到的；能动＝推得出\"能动\"，两个以上动点＝能用出两张不同的写了\"能动\"的卡）：");
+  const count = (card: Card) => deck.main.find((entry) => entry.card.id === card.id)?.count;
+  const matched = (label: string, group: Group) => {
+    const entries = groupMatches(group, deck, inArchetype);
+    const names = entries.slice(0, 8).map(({ card, count }) => `「${card.cn || card.en}」×${count}`).join("、");
+    const total = entries.reduce((sum, entry) => sum + entry.count, 0);
+    return `      ${label} ${group.text} → ${entries.length === 0 ? "主卡组里没有符合的卡" : `${names}${entries.length > 8 ? " 等" : ""}，共 ${total} 张`}`;
+  };
+  for (const move of rules.moves) {
+    lines.push(`  - 「${move.card.cn || move.card.en}」${move.fromExtra ? "（额外）" : `×${count(move.card)}`}：${move.text}`);
+    lines.push(...move.hold.map((group) => matched("手里", group)), ...move.discard.map((group) => matched("用掉", group)),
+      ...move.search.map((group) => matched("拿", group)));
+  }
+  if (rules.second.length > 0) lines.push(`  - 后手：${rules.second.join("、")}`);
+  const problems = [...rules.problems];
+  if (deck.unknown.length > 0) problems.push(`卡组里有 ${deck.unknown.length} 行没认出来，没有算进去：${deck.unknown.slice(0, 3).join("；")}`);
+  if (problems.length > 0) lines.push("", "请检查：", ...problems.map((problem) => `  - ${problem}`));
+  return lines.join("\n");
+}
+
+const fieldText = (board: Board) => {
+  const monsters = board.field.map((card) => `「${card.cn || card.en}」`).join("＋") || "（没有怪兽）";
+  return board.sets.length > 0 ? `${monsters}，后场 ${board.sets.map((card) => `「${card.cn || card.en}」`).join("")}` : monsters;
+};
+
+/** A route as one line per action, with the choices it needed after an arrow. */
+function routeLines(steps: string[]): string[] {
+  const lines: string[] = [];
+  for (const step of steps) {
+    if (lines.length === 0 || /^(通召|特召|发动|连锁发动)/.test(step)) lines.push(step);
+    else lines[lines.length - 1] += ` → ${step}`;
+  }
+  return lines.map((line, index) => `    ${index + 1}. ${line}`);
+}
+
+export function formatPlan(hand: Card[], result: PlanResult, problems: string[], missing: Card[], missingScripts: string[]): string {
+  const lines = [`起手：${hand.map((card) => `「${card.cn || card.en}」`).join("")}（先手，对手不做任何事；按结束阶段处理完、对手回合开始时算）`];
+  const [best, ...others] = result.boards;
+  if (!best) lines.push("", "没有找到任何能做的动作。");
+  else {
+    lines.push("", `最大场：${fieldText(best)}`, `  价值 ${best.value}`);
+    for (const place of ["场上", "墓地", "手里"] as const) {
+      const items = best.counted.filter((item) => item.place === place);
+      if (items.length === 0) continue;
+      const text = items.map(({ card, level, uses, value, ownTurn }) =>
+        `「${card.cn || card.en}」${LEVELS[level].name}${uses > 1 ? `×${uses}` : ""}${ownTurn ? "（只在自己回合用）" : ""} ${value}`).join("、");
+      lines.push(`  算进去的（${place}）：${text}`);
+    }
+    lines.push("  路线：", ...routeLines(best.steps));
+    const alternatives = others.slice(0, 5);
+    if (alternatives.length > 0) {
+      lines.push("", "其他的场（每种场只列最好的一条路线）：", ...alternatives.map((board) => `  [${board.value}] ${fieldText(board)}`));
+    }
+  }
+  lines.push("", "第一步的每种选择：");
+  for (const branch of result.branches) {
+    const how = branch.complete ? `全部搜完（${branch.nodes} 个节点）` : `搜了 ${branch.nodes} 个节点，到时间或节点上限没搜完`;
+    lines.push(`  ${branch.first}：${how}，最好 ${branch.best ? `[${branch.best.value}] ${fieldText(branch.best)}` : "无"}`);
+  }
+  const weights = LEVELS.map((level) => `${level.name} ${level.weight}`).join("、");
+  lines.push(`共 ${result.states} 个不同局面，${result.seconds.toFixed(1)} 秒。价值＝对手回合能用的打断按级别加权（${weights}），乘次数；只在自己回合用的算 1。`);
+  const notes = [...problems];
+  if (missing.length > 0) notes.push(`规则引擎还没有这些卡的数据或脚本，结果可能不对：${missing.map((card) => `「${card.cn || card.en}」`).join("、")}`);
+  if (missingScripts.length > 0) notes.push(`引擎要了但没找到的脚本：${missingScripts.join("、")}`);
+  if (notes.length > 0) lines.push("", "请检查：", ...notes.map((note) => `  - ${note}`));
   return lines.join("\n");
 }
