@@ -91,7 +91,7 @@ The skill has not been tested in the Claude apps (claude.ai and desktop) yet. Th
 
 ### MCP server
 
-For assistants other than Claude Code, add the MCP server to your client as a stdio server that runs `npx -y master-duel-ai-advisor`. It needs Node.js 18 or later. In Claude Desktop, for example, add this to `claude_desktop_config.json`:
+For assistants other than Claude Code, add the MCP server to your client as a stdio server that runs `npx -y master-duel-ai-advisor` (published on [npm](https://www.npmjs.com/package/master-duel-ai-advisor)). It needs Node.js 18 or later. In Claude Desktop, for example, add this to `claude_desktop_config.json`:
 
 ```json
 {
@@ -105,6 +105,18 @@ For assistants other than Claude Code, add the MCP server to your client as a st
 ```
 
 The server offers the same functions as the skill (`lookup_cards`, `search_cards`, `get_banlist`, `read_notes`, `add_note`) and includes the same working rules. In Claude Code, the skill alone is enough.
+
+### Command line
+
+The same lookups also work without an AI assistant:
+
+```bash
+npx -y -p master-duel-ai-advisor mdcard card "Junk Meister"
+npx -y -p master-duel-ai-advisor mdcard search --kind synchro --level 12 --text "1 Tuner + 1+ non-Tuner"
+npx -y -p master-duel-ai-advisor mdcard banlist --status limited1
+```
+
+Run `mdcard` without arguments to see every command and filter.
 
 ## Personal notes
 
@@ -231,7 +243,7 @@ node ~/.claude/skills/master-duel-ai-advisor/scripts/mdcard.mjs card 废品大�
 
 ### MCP 服务
 
-在 Claude Code 以外的 AI 助手里使用时，在客户端里添加一个 stdio 服务，运行 `npx -y master-duel-ai-advisor`，需要 Node.js 18 或更高版本。以 Claude Desktop 为例，在 `claude_desktop_config.json` 里加入：
+在 Claude Code 以外的 AI 助手里使用时，在客户端里添加一个 stdio 服务，运行 `npx -y master-duel-ai-advisor`（已发布到 [npm](https://www.npmjs.com/package/master-duel-ai-advisor)），需要 Node.js 18 或更高版本。以 Claude Desktop 为例，在 `claude_desktop_config.json` 里加入：
 
 ```json
 {
@@ -245,6 +257,18 @@ node ~/.claude/skills/master-duel-ai-advisor/scripts/mdcard.mjs card 废品大�
 ```
 
 这个服务提供和 Skill 相同的功能（`lookup_cards`、`search_cards`、`get_banlist`、`read_notes`、`add_note`），也带有同样的使用规则。在 Claude Code 里只用 Skill 就够了。
+
+### 命令行
+
+不通过 AI 助手，也可以直接查：
+
+```bash
+npx -y -p master-duel-ai-advisor mdcard card 废品大王
+npx -y -p master-duel-ai-advisor mdcard search --kind 同调 --level 12 --text "调整＋调整以外的怪兽1只以上"
+npx -y -p master-duel-ai-advisor mdcard banlist --status limited1
+```
+
+不带参数运行 `mdcard` 可以看到所有命令和筛选条件。
 
 ## 个人笔记
 
