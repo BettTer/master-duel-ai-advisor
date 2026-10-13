@@ -1,28 +1,49 @@
 {
   "name": "master-duel-ai-advisor",
-  "version": "0.2.0",
-  "description": "Yu-Gi-Oh! Master Duel deckbuilding tools for AI assistants: card lookup, banlist, Claude skill and MCP server",
+  "version": "0.3.0",
+  "description": "Yu-Gi-Oh! Master Duel deckbuilding tools for AI assistants: card lookup, rarity and banlist, as an MCP server and a Claude skill",
   "license": "Apache-2.0",
-  "private": true,
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BettTer/master-duel-ai-advisor.git"
+  },
+  "homepage": "https://github.com/BettTer/master-duel-ai-advisor#readme",
+  "bugs": "https://github.com/BettTer/master-duel-ai-advisor/issues",
+  "keywords": [
+    "yugioh",
+    "yu-gi-oh",
+    "master-duel",
+    "mcp",
+    "mcp-server",
+    "claude-skills",
+    "deck-builder"
+  ],
   "engines": {
     "node": ">=18"
   },
+  "bin": {
+    "master-duel-ai-advisor": "dist/mcp.mjs",
+    "mdcard": "skills/master-duel-ai-advisor/scripts/mdcard.mjs"
+  },
+  "files": [
+    "dist",
+    "skills"
+  ],
   "scripts": {
     "build": "npm run build:skill && npm run build:mcp",
-    "build:skill": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node18 --outfile=skills/master-duel-ai-advisor/scripts/mdcard.mjs",
-    "build:mcp": "esbuild src/mcp.ts --bundle --platform=node --format=esm --target=node18 --outfile=dist/mcp.mjs",
+    "build:skill": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node18 \"--banner:js=#!/usr/bin/env node\" --outfile=skills/master-duel-ai-advisor/scripts/mdcard.mjs",
+    "build:mcp": "esbuild src/mcp.ts --bundle --platform=node --format=esm --target=node18 \"--banner:js=#!/usr/bin/env node\" --outfile=dist/mcp.mjs",
     "typecheck": "tsc",
-    "test": "node --test \"test/**/*.test.ts\""
-  },
-  "dependencies": {
-    "@modelcontextprotocol/server": "^2.3.1",
-    "fflate": "^0.8.3",
-    "zod": "^4.6.7"
+    "test": "node --test \"test/**/*.test.ts\"",
+    "prepublishOnly": "npm test && npm run typecheck && npm run build"
   },
   "devDependencies": {
+    "@modelcontextprotocol/server": "^2.3.1",
     "@types/node": "^22.20.5",
     "esbuild": "^0.28.2",
-    "typescript": "^7.0.2"
+    "fflate": "^0.8.3",
+    "typescript": "^7.0.2",
+    "zod": "^4.6.7"
   }
 }

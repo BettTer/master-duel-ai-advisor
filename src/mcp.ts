@@ -2,11 +2,9 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import * as z from "zod/v4";
-import { loadBanlist } from "./banlist.ts";
-import { loadCards } from "./cards.ts";
-import { formatBanlist, formatLookup, formatSearch } from "./format.ts";
+import packageInfo from "../package.json" with { type: "json" };
 import { addNote, formatNotes } from "./notes.ts";
-import { searchCards } from "./query.ts";
+import { banlistText, lookup, search } from "./service.ts";
 
 // The working rules from SKILL.md, for clients that only see this server. Keep the two in step.
 const INSTRUCTIONS = `Verified Yu-Gi-Oh! Master Duel data for deckbuilding advice. Use these tools whenever the user talks about Master Duel cards or decks.
@@ -22,7 +20,7 @@ const INSTRUCTIONS = `Verified Yu-Gi-Oh! Master Duel data for deckbuilding advic
 - Offer options with their trade-offs and let the user decide. Do not invent combo routes.
 - If a lesson applies to every player (wrong card data, a rule stated badly, a search that keeps missing cards), offer to draft an issue for https://github.com/BettTer/master-duel-ai-advisor/issues/new, leaving out personal details.`;
 
-const server = new McpServer({ name: "master-duel-ai-advisor", version: "0.2.0" }, { instructions: INSTRUCTIONS });
+const server = new McpServer({ name: "master-duel-ai-advisor", version: packageInfo.version }, { instructions: INSTRUCTIONS });
 
 const text = (value: string) => ({ content: [{ type: "text" as const, text: value }] });
 
@@ -37,7 +35,7 @@ server.registerTool(
     }),
     annotations: { readOnlyHint: true },
   },
-  async ({ queries }) => text(formatLookup(await loadCards(), await loadBanlist(), queries).text),
+  async ({ queries }) => text((await lookup(queries)).text),
 );
 
 server.registerTool(
@@ -62,7 +60,7 @@ server.registerTool(
     }),
     annotations: { readOnlyHint: true },
   },
-  async (filters) => text(formatSearch(searchCards(await loadCards(), filters), await loadBanlist(), filters)),
+  async (filters) => text(await search(filters)),
 );
 
 server.registerTool(
@@ -76,9 +74,8 @@ server.registerTool(
     annotations: { readOnlyHint: true },
   },
   async (options) => {
-    const banlist = await loadBanlist();
-    if (!banlist) return { ...text("Could not download the Master Duel banlist."), isError: true };
-    return text(formatBanlist(await loadCards(), banlist, options));
+    const banlist = await banlistText(options);
+    return banlist ? text(banlist) : { ...text("Could not download the Master Duel banlist."), isError: true };
   },
 );
 

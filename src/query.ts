@@ -1,13 +1,16 @@
 import type { Card } from "./cards.ts";
 
-export const RARITY: Record<string, string> = { "Ultra Rare": "UR", "Super Rare": "SR", "Rare": "R", "Common": "N" };
-
 export function norm(value: string): string {
-  return value.replace(/[\s·・\-－'"“”‘’「」『』!！?？,，.。:：]/g, "").toLowerCase();
+  return value.replace(/[\s·・\-－'"“”‘’「」『』!！?？,，.。:：<>＜＞]/g, "").toLowerCase();
 }
 
 function normText(value: string): string {
   return value.replace(/\s/g, "").replaceAll("＋", "+").toLowerCase();
+}
+
+/** In Master Duel now: it has a Master Duel rarity and its release, if known, has passed. */
+export function inMasterDuel(card: Card, now = Date.now()): boolean {
+  return card.mdRarity !== "" && (!card.mdRelease || Date.parse(card.mdRelease) <= now);
 }
 
 function names(card: Card): string[] {
@@ -80,7 +83,7 @@ export interface SearchFilters {
 
 export function searchCards(cards: Card[], filters: SearchFilters): Card[] {
   const results = cards.filter((card) => {
-    if (!filters.allFormats && !card.mdRarity) return false;
+    if (!filters.allFormats && !inMasterDuel(card)) return false;
     const { kindTokens, raceTokens, attrTokens } = tokens(card);
     if (filters.kind?.some((kind) => !kindTokens.has(kind.toLowerCase()))) return false;
     if (filters.race && !raceTokens.has(filters.race.toLowerCase())) return false;
@@ -90,7 +93,7 @@ export function searchCards(cards: Card[], filters: SearchFilters): Card[] {
     if (filters.atk && !inRange(card.atk, filters.atk)) return false;
     if (filters.def && !inRange(card.def, filters.def)) return false;
     if (filters.archetype && !card.archetype.toLowerCase().includes(filters.archetype.toLowerCase())) return false;
-    if (filters.rarity && RARITY[card.mdRarity] !== filters.rarity.toUpperCase()) return false;
+    if (filters.rarity && card.mdRarity !== filters.rarity.toUpperCase()) return false;
     if (filters.name && !names(card).some((name) => norm(name).includes(norm(filters.name!)))) return false;
     if (filters.text?.length) {
       const texts = `${normText(card.descZh + card.pdescZh)}\n${normText(card.descEn)}`;

@@ -23,7 +23,7 @@ node scripts/mdcard.mjs notes                     # the user's preferences and l
 node scripts/mdcard.mjs update                    # force a refresh of cards and banlist
 ```
 
-The first run downloads about 30 MB of card data and caches it in `~/.cache/master-duel-ai-advisor` (refreshed weekly), so let the user know if it takes a moment.
+The first run downloads about 30 MB of card data and caches it in `~/.cache/master-duel-ai-advisor`, so let the user know if it takes a moment. The script checks the data sources for new versions about once an hour, and right away when a card lookup finds nothing, so cards from a new pack show up without any action.
 
 `card` prints names (YGOPro Chinese name, the MD Chinese name when it differs, English, Japanese), the type line, MD rarity, MD banlist status, any "treated as" name, a link to the card's ygocdb page, and the full Chinese and English text. It accepts several names or passcodes at once (quote names that contain spaces). If a query matches several cards, it lists them; query again with the full name or passcode.
 
@@ -78,6 +78,6 @@ Some lessons apply to every player: card data that is wrong, a rule in this skil
 ## Data notes
 
 - The cache lives in `~/.cache/master-duel-ai-advisor`; set `MDAA_CACHE_DIR` to put it somewhere else.
-- Card data comes from ygocdb.com (names, Chinese text) and YGOPRODeck (English text, MD rarity). MD rarity marked 未实装或未收录 usually means the card is not in Master Duel; very new cards can also lag behind.
+- Card data comes from ygocdb.com (names, Chinese text) and YGOPRODeck (English text). Which cards are in Master Duel, their rarity and release date come from masterduelmeta.com, with YGOPRODeck's rarity for cards it has no release date for. 未实装或未收录 means the card is not in Master Duel; 将于 <date> 实装 means it has been announced for that date. `update` prints the version of each source the data was built from.
 - The banlist comes from masterduelmeta.com and falls back to the [yaml-yugi limit regulation](https://github.com/DawnbrandBots/yaml-yugi-limit-regulation) data (rebuilt daily from Yugipedia) when Master Duel Meta cannot be used. It is refreshed at most once a day, and the output names the source.
 - Card text and images belong to KONAMI. The script only caches data on the user's machine.

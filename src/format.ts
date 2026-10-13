@@ -1,7 +1,7 @@
 // Text output shared by the command line and the MCP server.
-import { banStatus, cardKeys, entryKeys, type BanStatus, type Banlist, type Status } from "./banlist.ts";
+import { banStatus, cardKeys, entryKeys, jstDate, type BanStatus, type Banlist, type Status } from "./banlist.ts";
 import type { Card } from "./cards.ts";
-import { RARITY, findCards, zhKinds } from "./query.ts";
+import { findCards, inMasterDuel, zhKinds } from "./query.ts";
 
 const BAN_LABEL: Record<BanStatus, string> = {
   forbidden: "禁止 Forbidden",
@@ -52,7 +52,8 @@ function materials(card: Card): string {
 }
 
 export function formatCard(card: Card, banlist: Banlist | null): string {
-  const rarity = RARITY[card.mdRarity] ?? (card.mdRarity || "未实装或未收录 not in MD data");
+  let rarity = card.mdRarity || "未实装或未收录 not in MD data";
+  if (card.mdRarity && !inMasterDuel(card)) rarity += `（将于 ${jstDate(card.mdRelease)} 实装）`;
   const lines = [
     `${namesLine(card)} | ${card.jp || "-"} | 卡密 ${card.id}`,
     card.typesZh || typesLine(card),
@@ -90,7 +91,7 @@ export function formatSearch(results: Card[], banlist: Banlist | null, options: 
   const limit = options.limit ?? 60;
   const lines = [`共 ${results.length} 张符合条件${options.allFormats ? "（含 MD 未实装的卡）" : "（仅 MD 已实装）"}`];
   for (const card of results.slice(0, limit)) {
-    lines.push(`${namesLine(card)} | ${card.id} | ${typesLine(card)} | ${RARITY[card.mdRarity] ?? "-"} | ${banText(card, banlist)}`);
+    lines.push(`${namesLine(card)} | ${card.id} | ${typesLine(card)} | ${card.mdRarity || "-"} | ${banText(card, banlist)}`);
     if (options.full) lines.push(`    ${(card.descZh || card.descEn).replaceAll("\n", "\n    ")}`);
     else if (materials(card)) lines.push(`    素材：${materials(card)}`);
   }

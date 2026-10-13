@@ -1,15 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { banStatus, discoverMdmEndpoints, readMasterDuelMeta, type Regulation } from "../src/banlist.ts";
-import type { Card } from "../src/cards.ts";
+import { banStatus, readMasterDuelMeta, type Regulation } from "../src/banlist.ts";
+import { mergeCards, sourcesChanged, type Card } from "../src/cards.ts";
+import { discoverMdmEndpoints, fetchMdPool } from "../src/mdm.ts";
 import { addEntry } from "../src/notes.ts";
-import { findCards, inRange, searchCards } from "../src/query.ts";
+import { findCards, inMasterDuel, inRange, searchCards } from "../src/query.ts";
 
 function card(fields: Partial<Card>): Card {
   return {
     id: 1, cid: null, altIds: [], cn: "", md: "", sc: "", jp: "", en: "", aliases: [],
     typesZh: "", descZh: "", pdescZh: "", typeEn: "", typeline: [], raceEn: "", attrEn: "",
-    level: null, link: null, atk: null, def: null, archetype: "", descEn: "", mdRarity: "Common", treatedAs: "",
+    level: null, link: null, atk: null, def: null, archetype: "", descEn: "", mdRarity: "N", mdRelease: "", treatedAs: "",
     ...fields,
   };
 }
@@ -17,13 +18,13 @@ function card(fields: Partial<Card>): Card {
 const meister = card({
   id: 73218792, cid: 22310, cn: "废品大王", md: "废品大师", en: "Junk Meister",
   typesZh: "[怪兽|效果] 战士/地\n[★4] 100/2300", typeEn: "Effect Monster", typeline: ["Warrior", "Effect"],
-  raceEn: "Warrior", attrEn: "EARTH", level: 4, mdRarity: "Ultra Rare",
+  raceEn: "Warrior", attrEn: "EARTH", level: 4, mdRarity: "UR",
 });
 const despian = card({
   id: 53971455, cid: 18001, cn: "赫圣之妖骑士", en: "Despian Luluwalilith",
   typesZh: "[怪兽|效果|同调] 魔法师/光\n[★12] 2500/2500", descZh: "4星调整＋调整以外的怪兽1只以上\r\n①：…",
   typeEn: "Synchro Effect Monster", typeline: ["Spellcaster", "Synchro", "Effect"], raceEn: "Spellcaster",
-  attrEn: "LIGHT", level: 12, mdRarity: "Ultra Rare",
+  attrEn: "LIGHT", level: 12, mdRarity: "UR",
 });
 const ocgOnly = card({ id: 5, cn: "未实装", en: "Not In MD", level: 12, typesZh: "[怪兽|效果|同调] 龙/光", mdRarity: "" });
 const cards = [meister, despian, ocgOnly];
@@ -120,4 +121,49 @@ test("addEntry appends to the right section and recreates a missing one", () => 
   const withPreference = addEntry(notes, "preference", "b", "2026-10-12");
   assert.equal(withPreference, "# Notes\n\n## Preferences\n- 2026-10-01 a\n- 2026-10-12 b\n\n## Lessons\n");
   assert.equal(addEntry("# Notes\n", "lesson", "c", "2026-10-12"), "# Notes\n\n## Lessons\n- 2026-10-12 c\n");
+});
+
+test("mergeCards prefers Master Duel Meta's rarity and release, falling back to YGOPRODeck", () => {
+  const cdb = [{ id: 1, cid: 11, cn: "一" }, { id: 2, cid: 22, cn: "二" }, { id: 3, cid: 33, cn: "三" }];
+  const ypd = [
+    { id: 1, name: "One", misc_info: [{ md_rarity: "Common" }], card_images: [{ id: 1 }] },
+    { id: 2, name: "Two", misc_info: [{ md_rarity: "Super Rare" }], card_images: [{ id: 2 }, { id: 20 }] },
+    { id: 3, name: "Three", misc_info: [{}], card_images: [{ id: 3 }] },
+  ];
+  const pool = new Map([
+    [1, { rarity: "UR", release: "2026-06-04T07:50:00.000Z" }], // YGOPRODeck still says Common
+    [3, { rarity: "SR", release: "2999-01-01T00:00:00.000Z" }], // announced, not out yet
+  ]);
+  const [one, two, three] = mergeCards(cdb, ypd, pool);
+  assert.equal(one.mdRarity, "UR");
+  assert.equal(two.mdRarity, "SR"); // not in the pool, e.g. Forbidden since launch
+  assert.equal(three.mdRarity, "SR");
+  assert.ok(inMasterDuel(one) && inMasterDuel(two) && !inMasterDuel(three));
+  assert.equal(mergeCards(cdb, ypd, null)[0].mdRarity, "N");
+});
+
+test("sourcesChanged ignores sources that could not be reached", () => {
+  const built = { ygocdb: "a", ygoprodeck: "1.0", mdPool: "2026-10-06T09:01:00.000Z" };
+  assert.ok(!sourcesChanged(built, { ...built }));
+  assert.ok(!sourcesChanged(built, { ygocdb: null, ygoprodeck: null, mdPool: null }));
+  assert.ok(sourcesChanged(built, { ...built, ygoprodeck: "1.1" }));
+  assert.ok(sourcesChanged({ ...built, mdPool: null }, built)); // Master Duel Meta is back
+});
+
+test("fetchMdPool reads every page and keeps each card's first release", async () => {
+  const rows = Array.from({ length: 5200 }, (_, i) => ({ konamiID: String(i + 1), rarity: "N", release: "2022-01-19T06:00:00.000Z" }));
+  rows.push({ konamiID: "7", rarity: "UR", release: "2026-06-04T07:50:00.000Z" }); // a later reprint row
+  rows.push({ konamiID: "9999999", rarity: "SR" } as any); // no release: not in Master Duel
+  const requested: string[] = [];
+  const get = async (url: string) => {
+    requested.push(url);
+    const page = Number(new URL(url).searchParams.get("page"));
+    return rows.slice((page - 1) * 3000, page * 3000);
+  };
+  const pool = await fetchMdPool(get);
+  assert.equal(requested.length, 2);
+  assert.ok(requested[0].includes("alternateArt%5B%24ne%5D=true"));
+  assert.equal(pool.size, 5200);
+  assert.deepEqual(pool.get(7), { rarity: "N", release: "2022-01-19T06:00:00.000Z" });
+  await assert.rejects(fetchMdPool(async () => rows.slice(0, 10)), /data format may have changed/);
 });

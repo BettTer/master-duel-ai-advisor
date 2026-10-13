@@ -1,0 +1,39 @@
+// The operations both entry points offer: load the data, run the query, return text.
+import { jstDate, loadBanlist, type Status } from "./banlist.ts";
+import { cardDataInfo, loadCards, reloadIfSourcesChanged } from "./cards.ts";
+import { banlistNote, formatBanlist, formatLookup, formatSearch } from "./format.ts";
+import { inMasterDuel, searchCards, type SearchFilters } from "./query.ts";
+
+/** Full details for each query. If one matched nothing, check right away whether a source has newer data. */
+export async function lookup(queries: string[]): Promise<{ text: string; missing: boolean }> {
+  const banlist = await loadBanlist();
+  let result = formatLookup(await loadCards(), banlist, queries);
+  if (result.missing) {
+    const fresh = await reloadIfSourcesChanged();
+    if (fresh) result = formatLookup(fresh, banlist, queries);
+  }
+  return result;
+}
+
+export async function search(filters: SearchFilters & { full?: boolean; limit?: number }): Promise<string> {
+  return formatSearch(searchCards(await loadCards(), filters), await loadBanlist(), filters);
+}
+
+/** The banlist as text, or null if it could never be downloaded. */
+export async function banlistText(options: { status?: Status; upcoming?: boolean }): Promise<string | null> {
+  const banlist = await loadBanlist();
+  return banlist && formatBanlist(await loadCards(), banlist, options);
+}
+
+/** Re-download everything now and describe what the data was built from. */
+export async function refresh(): Promise<string> {
+  const cards = await loadCards(true);
+  const banlist = await loadBanlist(true);
+  const { sources, mdSource } = cardDataInfo()!;
+  return [
+    `卡片数据 ${cards.length} 张，其中 MD 已实装 ${cards.filter((card) => inMasterDuel(card)).length} 张`,
+    `数据版本：百鸽 ${sources.ygocdb?.slice(0, 8) ?? "?"}，YGOPRODeck ${sources.ygoprodeck ?? "?"}，`
+      + `MD 卡池最新实装 ${sources.mdPool ? jstDate(sources.mdPool) : "?"}（MD 稀有度来源 ${mdSource}）`,
+    banlistNote(banlist),
+  ].join("\n");
+}

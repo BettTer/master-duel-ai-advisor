@@ -4,7 +4,8 @@
 import { existsSync } from "node:fs";
 import { DAY, ageOf, cachePath, readJson, writeText } from "./cache.ts";
 import type { Card } from "./cards.ts";
-import { fetchJson, fetchText } from "./http.ts";
+import { fetchJson } from "./http.ts";
+import { ENDPOINTS_CACHE, MDM_KNOWN_ENDPOINTS, discoverMdmEndpoints, encodeQuery, type Endpoints, type GetJson } from "./mdm.ts";
 
 export type Status = "forbidden" | "limited1" | "limited2";
 export type BanStatus = Status | "unlimited" | "unknown";
@@ -27,59 +28,14 @@ export interface Banlist {
   upcoming: Regulation | null;
 }
 
-interface Endpoints {
-  cards: string;
-  changes: string;
-}
-
-type GetText = (url: string) => Promise<string>;
-type GetJson = (url: string) => Promise<any>;
-
 const BANLIST_CACHE = cachePath("md_banlist.json");
-const ENDPOINTS_CACHE = cachePath("mdm_endpoints.json");
 const BANLIST_MAX_AGE = DAY;
 
-const MDM_SITE = "https://www.masterduelmeta.com";
-// What Master Duel Meta's banlist page called when this was written; tried after rediscovery fails.
-export const MDM_KNOWN_ENDPOINTS: Endpoints = {
-  cards: `${MDM_SITE}/api/v1/cards?tcgBanStatus[$or][$exists]=true&ocgBanStatus[$or][$exists]=true`
-    + "&banStatus[$or][$exists]=true&alternateArt[$ne]=true&limit=0",
-  changes: `${MDM_SITE}/api/v1/banlist-changes?sort=-date`,
-};
 const MDM_STATUS: Record<string, Status> = { "Forbidden": "forbidden", "Limited 1": "limited1", "Limited 2": "limited2" };
 const LIMIT_STATUS: Record<number, Status> = { 0: "forbidden", 1: "limited1", 2: "limited2" };
 const YAML_YUGI_URL = "https://dawnbrandbots.github.io/yaml-yugi-limit-regulation/master-duel/{}.vector.json";
 
-function mustMatch(text: string, pattern: RegExp, what: string): RegExpMatchArray {
-  const match = text.match(pattern);
-  if (!match) throw new Error(`${what} not found`);
-  return match;
-}
-
-/** Read the API calls Master Duel Meta's own banlist page makes, so a change on their side is picked up. */
-export async function discoverMdmEndpoints(get: GetText = fetchText): Promise<Endpoints> {
-  const page = await get(`${MDM_SITE}/terms-of-service`); // any small page loads the app entry script
-  const appPath = mustMatch(page, /\/_app\/immutable\/entry\/app\.[\w-]+\.js/, "app entry script")[0];
-  const app = await get(MDM_SITE + appPath);
-  const node = mustMatch(app, /"\/forbidden-limited-list":\[(\d+)/, "banlist route")[1];
-  const nodePath = mustMatch(app, new RegExp(`nodes/${node}\\.[\\w-]+\\.js`), "banlist page script")[0];
-  const nodeScript = await get(`${MDM_SITE}/_app/immutable/${nodePath}`);
-  const queries = [...nodeScript.matchAll(/"((?:cards|banlist-changes)\?[^"]*)"/g)].map((match) => match[1]);
-  const cardsQuery = queries.find((query) => query.startsWith("cards?") && query.includes("banStatus"));
-  const changesQuery = queries.find((query) => query.startsWith("banlist-changes?"));
-  if (!cardsQuery || !changesQuery) throw new Error("banlist queries not found in the page script");
-  const chunks = [...nodeScript.matchAll(/chunks\/[\w.-]+\.js/g)].map((match) => match[0]);
-  chunks.sort((a, b) => Number(!a.includes("Fetch")) - Number(!b.includes("Fetch"))); // the request helper first
-  for (const chunk of chunks) {
-    const base = (await get(`${MDM_SITE}/_app/immutable/${chunk}`)).match(/"(\/api\/v\d+\/)"/);
-    if (base) return { cards: MDM_SITE + base[1] + cardsQuery, changes: MDM_SITE + base[1] + changesQuery };
-  }
-  throw new Error("API base path not found");
-}
-
-const encodeQuery = (url: string) => url.replace(/[[\]$]/g, (char) => encodeURIComponent(char));
-
-const jstDate = (iso: string) =>
+export const jstDate = (iso: string) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(new Date(iso)); // YYYY-MM-DD
 
 export async function readMasterDuelMeta(endpoints: Endpoints, get: GetJson = fetchJson): Promise<Omit<Banlist, "source">> {

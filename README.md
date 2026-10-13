@@ -60,7 +60,7 @@ Combo generation is not part of the initial scope. An assistant cannot reliably 
 ## Formats
 
 - **Claude Skill.** *Available now for Claude Code.* A `SKILL.md` file and a small script. It does not require a separate hosted service or add an API bill for this project.
-- **MCP server.** *Available now, run from a local copy of this repository.* The project should work with any AI assistant, not only Claude. The same functions are exposed through MCP so that other assistants and AI clients that support MCP can use them.
+- **MCP server.** *Available now.* The project should work with any AI assistant, not only Claude. The same functions are exposed through MCP so that other assistants and AI clients that support MCP can use them.
 - **Static site on GitHub Pages.** Card lookup, calculations and checks will run locally in the browser without an AI model. Optional AI features will use an API key supplied by the user and stored only in that browser. The hand editor and route maps from the roadmap will also be built here.
 
 ## Installation
@@ -85,29 +85,20 @@ After that, ask Claude Code about Master Duel cards or decks as usual, and the s
 node ~/.claude/skills/master-duel-ai-advisor/scripts/mdcard.mjs card "Junk Meister"
 ```
 
-On its first run, the script downloads about 30 MB of card data into `~/.cache/master-duel-ai-advisor` and refreshes it weekly.
+The script downloads about 30 MB of card data into `~/.cache/master-duel-ai-advisor` on its first run, and again whenever one of the data sources publishes new data, such as a new Master Duel pack.
 
 The skill has not been tested in the Claude apps (claude.ai and desktop) yet. The script needs internet access, which depends on each app's code execution settings.
 
 ### MCP server
 
-For assistants other than Claude Code, build the MCP server from a local copy of this repository:
-
-```bash
-git clone https://github.com/BettTer/master-duel-ai-advisor.git
-cd master-duel-ai-advisor
-npm install
-npm run build
-```
-
-Then add it to your client as a stdio server that runs `node /absolute/path/to/master-duel-ai-advisor/dist/mcp.mjs`. In Claude Desktop, for example, add this to `claude_desktop_config.json`:
+For assistants other than Claude Code, add the MCP server to your client as a stdio server that runs `npx -y master-duel-ai-advisor`. It needs Node.js 18 or later. In Claude Desktop, for example, add this to `claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "master-duel-ai-advisor": {
-      "command": "node",
-      "args": ["/absolute/path/to/master-duel-ai-advisor/dist/mcp.mjs"]
+      "command": "npx",
+      "args": ["-y", "master-duel-ai-advisor"]
     }
   }
 }
@@ -126,8 +117,8 @@ When a correction applies to every player, such as wrong card data or a rule the
 ## Data sources
 
 - [ygocdb (百鸽)](https://ygocdb.com/): card text; Chinese, English and Japanese card names; and the Chinese names used in Master Duel.
-- [YGOPRODeck API](https://ygoprodeck.com/api-guide/): card data and Master Duel rarity. Data will be cached locally, images will not be hotlinked, and requests will stay within the API's rate limits.
-- [Master Duel Meta](https://www.masterduelmeta.com/forbidden-limited-list): the Master Duel Forbidden & Limited list, with each card's current status and a dated history of list changes, including lists that have been announced but are not in effect yet.
+- [YGOPRODeck API](https://ygoprodeck.com/api-guide/): English card text and other card data, and the Master Duel rarity of cards that Master Duel Meta has no release date for. Data is cached locally, images are not hotlinked, and requests stay within the API's rate limits.
+- [Master Duel Meta](https://www.masterduelmeta.com/forbidden-limited-list): which cards are in Master Duel, with their rarity and release date, and the Master Duel Forbidden & Limited list, with each card's current status and a dated history of list changes, including lists that have been announced but are not in effect yet.
 - [yaml-yugi limit regulation](https://github.com/DawnbrandBots/yaml-yugi-limit-regulation): the fallback banlist source, rebuilt daily from Yugipedia's record of each list. It is used only when Master Duel Meta cannot be reached.
 
 Card text and images are copyrighted by KONAMI. This repository does not redistribute the card database, the banlist or card images. The tools fetch the required data when they run and cache it on the user's machine.
@@ -209,7 +200,7 @@ MD 有独立的禁限表。按照 TCG 或 OCG 禁限表给出的建议，可能�
 ## 使用方式
 
 - **Claude Skill。** *Claude Code 已可使用。* 内容包括一个 `SKILL.md` 和一个小脚本，不需要为这个项目单独部署服务或支付额外的 API 费用。
-- **MCP 服务。** *已可使用，需要从本仓库的本地副本运行。* 这个项目应该支持所有 AI 助手，而不只是 Claude。同一批功能通过 MCP 提供出来，让其他支持 MCP 的 AI 助手和客户端也能使用。
+- **MCP 服务。** *已可使用。* 这个项目应该支持所有 AI 助手，而不只是 Claude。同一批功能通过 MCP 提供出来，让其他支持 MCP 的 AI 助手和客户端也能使用。
 - **GitHub Pages 静态网页。** 查卡、计算和检查功能会直接在浏览器中运行，不依赖 AI 模型。可选的 AI 功能使用用户自己提供的 API key，并且只保存在当前浏览器中。路线图中的起手编辑器和展开路线图也会做在这里。
 
 ## 安装
@@ -234,29 +225,20 @@ ln -s "$(pwd)/master-duel-ai-advisor/skills/master-duel-ai-advisor" ~/.claude/sk
 node ~/.claude/skills/master-duel-ai-advisor/scripts/mdcard.mjs card 废品大王
 ```
 
-第一次运行时，脚本会下载约 30 MB 的卡片数据到 `~/.cache/master-duel-ai-advisor`，之后每周更新一次。
+脚本第一次运行时会下载约 30 MB 的卡片数据到 `~/.cache/master-duel-ai-advisor`；之后只要有数据源发布了新数据（比如 MD 上了新卡包），就会重新下载。
 
 这个 Skill 还没有在 Claude 客户端（claude.ai 和桌面版）中测试过。脚本需要联网，能否联网取决于各客户端的代码执行设置。
 
 ### MCP 服务
 
-在 Claude Code 以外的 AI 助手里使用时，先从本仓库的本地副本构建 MCP 服务：
-
-```bash
-git clone https://github.com/BettTer/master-duel-ai-advisor.git
-cd master-duel-ai-advisor
-npm install
-npm run build
-```
-
-然后在客户端里添加一个 stdio 服务，运行 `node /absolute/path/to/master-duel-ai-advisor/dist/mcp.mjs`。以 Claude Desktop 为例，在 `claude_desktop_config.json` 里加入：
+在 Claude Code 以外的 AI 助手里使用时，在客户端里添加一个 stdio 服务，运行 `npx -y master-duel-ai-advisor`，需要 Node.js 18 或更高版本。以 Claude Desktop 为例，在 `claude_desktop_config.json` 里加入：
 
 ```json
 {
   "mcpServers": {
     "master-duel-ai-advisor": {
-      "command": "node",
-      "args": ["/absolute/path/to/master-duel-ai-advisor/dist/mcp.mjs"]
+      "command": "npx",
+      "args": ["-y", "master-duel-ai-advisor"]
     }
   }
 }
@@ -275,8 +257,8 @@ AI 助手会把每位玩家的偏好和纠正记在 `~/.config/master-duel-ai-ad
 ## 数据来源
 
 - [百鸽（ygocdb）](https://ygocdb.com/)：卡文、中英日卡名，以及 MD 中使用的中文卡名。
-- [YGOPRODeck API](https://ygoprodeck.com/api-guide/)：卡片数据和 MD 稀有度。数据会缓存在本地，图片不会盗链，请求也会遵守 API 的限速要求。
-- [Master Duel Meta](https://www.masterduelmeta.com/forbidden-limited-list)：MD 禁限表，包括每张卡当前的禁限状态，以及每次禁限变动的日期记录（含已经公布但尚未生效的新表）。
+- [YGOPRODeck API](https://ygoprodeck.com/api-guide/)：英文卡文等卡片数据，以及 Master Duel Meta 没有实装日期的卡的 MD 稀有度。数据缓存在本地，图片不盗链，请求遵守 API 的限速要求。
+- [Master Duel Meta](https://www.masterduelmeta.com/forbidden-limited-list)：哪些卡已经在 MD 实装、各自的稀有度和实装日期，以及 MD 禁限表，包括每张卡当前的禁限状态和每次禁限变动的日期记录（含已经公布但尚未生效的新表）。
 - [yaml-yugi limit regulation](https://github.com/DawnbrandBots/yaml-yugi-limit-regulation)：备用的禁限表来源，每天根据 Yugipedia 对每一期禁限表的记录重新生成。只有在连不上 Master Duel Meta 时才会使用。
 
 卡文和卡图的版权属于 KONAMI。本仓库不会重新分发卡片数据库、禁限表或卡图。工具运行时会按需获取数据，并将其缓存在用户自己的电脑上。

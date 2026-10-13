@@ -1,8 +1,11 @@
+#!/usr/bin/env node
+
 // src/cli.ts
 import { parseArgs } from "node:util";
 
-// src/banlist.ts
-import { existsSync as existsSync2 } from "node:fs";
+// src/notes.ts
+import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
+import { join as join2 } from "node:path";
 
 // src/cache.ts
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -25,6 +28,47 @@ function writeText(path, text) {
   writeFileSync(path, text, "utf8");
 }
 
+// src/notes.ts
+var NOTES_PATH = join2(CONFIG_DIR, "notes.md");
+var TEMPLATE = `# Master Duel AI Advisor notes
+
+Your preferences and the lessons the assistant should remember. Updating the skill does not change this file,
+and you can edit it by hand.
+
+## Preferences
+
+## Lessons
+`;
+var HEADINGS = { preference: "## Preferences", lesson: "## Lessons" };
+function addEntry(notes, kind, entry, date) {
+  const heading = HEADINGS[kind];
+  if (!notes.includes(heading)) notes = `${notes.replace(/\n+$/, "")}
+
+${heading}
+`;
+  const start = notes.indexOf(heading) + heading.length;
+  const next = notes.indexOf("\n## ", start);
+  const end = next === -1 ? notes.length : next;
+  const section = `${notes.slice(start, end).replace(/\n+$/, "")}
+- ${date} ${entry}
+`;
+  return notes.slice(0, start) + section + notes.slice(end);
+}
+function readNotes() {
+  return existsSync2(NOTES_PATH) ? readFileSync2(NOTES_PATH, "utf8") : null;
+}
+function addNote(kind, entry) {
+  const date = (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA");
+  writeText(NOTES_PATH, addEntry(readNotes() ?? TEMPLATE, kind, entry, date));
+}
+function formatNotes() {
+  return `\u7B14\u8BB0\u6587\u4EF6\uFF1A${NOTES_PATH}
+${readNotes() ?? "\uFF08\u8FD8\u6CA1\u6709\u7B14\u8BB0\uFF09"}`;
+}
+
+// src/banlist.ts
+import { existsSync as existsSync4 } from "node:fs";
+
 // src/http.ts
 var USER_AGENT = "master-duel-ai-advisor (+https://github.com/BettTer/master-duel-ai-advisor)";
 async function fetchBytes(url, timeoutSeconds = 120) {
@@ -44,18 +88,14 @@ async function fetchJson(url, timeoutSeconds = 60) {
   return JSON.parse(await fetchText(url, timeoutSeconds));
 }
 
-// src/banlist.ts
-var BANLIST_CACHE = cachePath("md_banlist.json");
+// src/mdm.ts
+import { existsSync as existsSync3 } from "node:fs";
 var ENDPOINTS_CACHE = cachePath("mdm_endpoints.json");
-var BANLIST_MAX_AGE = DAY;
 var MDM_SITE = "https://www.masterduelmeta.com";
 var MDM_KNOWN_ENDPOINTS = {
   cards: `${MDM_SITE}/api/v1/cards?tcgBanStatus[$or][$exists]=true&ocgBanStatus[$or][$exists]=true&banStatus[$or][$exists]=true&alternateArt[$ne]=true&limit=0`,
   changes: `${MDM_SITE}/api/v1/banlist-changes?sort=-date`
 };
-var MDM_STATUS = { "Forbidden": "forbidden", "Limited 1": "limited1", "Limited 2": "limited2" };
-var LIMIT_STATUS = { 0: "forbidden", 1: "limited1", 2: "limited2" };
-var YAML_YUGI_URL = "https://dawnbrandbots.github.io/yaml-yugi-limit-regulation/master-duel/{}.vector.json";
 function mustMatch(text, pattern, what) {
   const match = text.match(pattern);
   if (!match) throw new Error(`${what} not found`);
@@ -81,6 +121,41 @@ async function discoverMdmEndpoints(get = fetchText) {
   throw new Error("API base path not found");
 }
 var encodeQuery = (url) => url.replace(/[[\]$]/g, (char) => encodeURIComponent(char));
+function apiBase() {
+  const endpoints = existsSync3(ENDPOINTS_CACHE) ? readJson(ENDPOINTS_CACHE) : MDM_KNOWN_ENDPOINTS;
+  return endpoints.cards.slice(0, endpoints.cards.indexOf("cards?"));
+}
+async function fetchMdPool(get = fetchJson) {
+  const pool = /* @__PURE__ */ new Map();
+  const pageSize = 3e3;
+  for (let page = 1; page <= 20; page++) {
+    const rows = await get(encodeQuery(
+      `${apiBase()}cards?alternateArt[$ne]=true&limit=${pageSize}&page=${page}&fields=name,rarity,konamiID,release`
+    ));
+    for (const row of rows) {
+      if (!row.konamiID || !row.release) continue;
+      const id = Number(row.konamiID);
+      const known = pool.get(id);
+      if (!known || row.release < known.release) pool.set(id, { rarity: row.rarity, release: row.release });
+    }
+    if (rows.length < pageSize) break;
+  }
+  if (pool.size < 5e3) throw new Error(`only ${pool.size} Master Duel cards; the data format may have changed`);
+  return pool;
+}
+async function newestMdRelease(get = fetchJson) {
+  const result = await get(`${apiBase()}cards?sort=-release&limit=1&fields=release`);
+  const newest = Array.isArray(result) ? result[0] : result;
+  if (!newest?.release) throw new Error("no release date");
+  return newest.release;
+}
+
+// src/banlist.ts
+var BANLIST_CACHE = cachePath("md_banlist.json");
+var BANLIST_MAX_AGE = DAY;
+var MDM_STATUS = { "Forbidden": "forbidden", "Limited 1": "limited1", "Limited 2": "limited2" };
+var LIMIT_STATUS = { 0: "forbidden", 1: "limited1", 2: "limited2" };
+var YAML_YUGI_URL = "https://dawnbrandbots.github.io/yaml-yugi-limit-regulation/master-duel/{}.vector.json";
 var jstDate = (iso) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(new Date(iso));
 async function readMasterDuelMeta(endpoints, get = fetchJson) {
   const rows = await get(encodeQuery(endpoints.cards));
@@ -123,7 +198,7 @@ async function banlistFromMasterDuelMeta() {
   } catch (error) {
     console.error(`Could not rediscover Master Duel Meta's banlist endpoints (${error}).`);
   }
-  if (existsSync2(ENDPOINTS_CACHE)) candidates.push(["last working", readJson(ENDPOINTS_CACHE)]);
+  if (existsSync4(ENDPOINTS_CACHE)) candidates.push(["last working", readJson(ENDPOINTS_CACHE)]);
   candidates.push(["known", MDM_KNOWN_ENDPOINTS]);
   const tried = /* @__PURE__ */ new Set();
   const errors = [];
@@ -172,7 +247,7 @@ async function loadBanlist(force = false) {
     }
     if (banlist) {
       writeText(BANLIST_CACHE, JSON.stringify(banlist));
-    } else if (existsSync2(BANLIST_CACHE)) {
+    } else if (existsSync4(BANLIST_CACHE)) {
       console.error(`Could not refresh the Master Duel banlist (${errors.join("; ")}); using the last downloaded copy.`);
     } else {
       console.error(`Could not download the Master Duel banlist (${errors.join("; ")}).`);
@@ -210,7 +285,7 @@ function banStatus(card, regulation) {
 }
 
 // src/cards.ts
-import { existsSync as existsSync3, statSync as statSync2 } from "node:fs";
+import { existsSync as existsSync5, statSync as statSync2 } from "node:fs";
 
 // node_modules/fflate/esm/index.mjs
 import { createRequire } from "module";
@@ -697,21 +772,28 @@ function unzipSync(data, opts) {
 
 // src/cards.ts
 var YGOCDB_ZIP = "https://ygocdb.com/api/v0/cards.zip";
+var YGOCDB_MD5 = "https://ygocdb.com/api/v0/cards.zip.md5";
 var YGOPRODECK_ALL = "https://db.ygoprodeck.com/api/v7/cardinfo.php?misc=yes";
+var YGOPRODECK_VERSION = "https://db.ygoprodeck.com/api/v7/checkDBVer.php";
 var CARDS_CACHE = cachePath("cards.json");
+var CHECKED_MARK = cachePath("cards_checked");
 var CARDS_MAX_AGE = 7 * DAY;
-var CACHE_VERSION = 1;
-function makeCard(cdb, ypd) {
+var CHECK_INTERVAL = 3600;
+var CACHE_VERSION = 2;
+var YGOPRODECK_RARITY = { "Ultra Rare": "UR", "Super Rare": "SR", "Rare": "R", "Common": "N" };
+function makeCard(cdb, ypd, pool) {
   cdb ??= {};
   ypd ??= {};
   const misc = ypd.misc_info?.[0] ?? {};
   const text = cdb.text ?? {};
   const id = cdb.id ?? ypd.id;
+  const altIds = (ypd.card_images ?? []).map((image) => image.id).filter((imageId) => imageId !== id);
   const aliases = new Set([cdb.nwbbs_n, cdb.cnocg_n, cdb.md_en_n, ypd.name].filter(Boolean));
+  const md = [id, ...altIds].map((cardId) => pool?.get(cardId)).find(Boolean);
   return {
     id,
     cid: cdb.cid ?? misc.konami_id ?? null,
-    altIds: (ypd.card_images ?? []).map((image) => image.id).filter((imageId) => imageId !== id),
+    altIds,
     cn: cdb.cn_name ?? "",
     md: cdb.md_name ?? "",
     sc: cdb.sc_name ?? "",
@@ -731,11 +813,12 @@ function makeCard(cdb, ypd) {
     def: ypd.def ?? null,
     archetype: ypd.archetype ?? "",
     descEn: ypd.desc ?? "",
-    mdRarity: misc.md_rarity ?? "",
+    mdRarity: md?.rarity ?? YGOPRODECK_RARITY[misc.md_rarity] ?? "",
+    mdRelease: md?.release ?? "",
     treatedAs: misc.treated_as ?? ""
   };
 }
-function mergeCards(cdbCards, ypdCards) {
+function mergeCards(cdbCards, ypdCards, pool) {
   const ypdById = /* @__PURE__ */ new Map();
   for (const card of ypdCards) {
     for (const image of card.card_images ?? []) {
@@ -748,54 +831,101 @@ function mergeCards(cdbCards, ypdCards) {
   for (const entry of cdbCards) {
     const ypd = ypdById.get(entry.id);
     if (ypd) used.add(ypd.id);
-    merged.push(makeCard(entry, ypd));
+    merged.push(makeCard(entry, ypd, pool));
   }
   for (const card of ypdCards) {
-    if (!used.has(card.id)) merged.push(makeCard(null, card));
+    if (!used.has(card.id)) merged.push(makeCard(null, card, pool));
   }
   return merged;
 }
+async function checkVersions() {
+  const [ygocdb, ygoprodeck, mdPool] = await Promise.allSettled([
+    fetchJson(YGOCDB_MD5, 15),
+    fetchJson(YGOPRODECK_VERSION, 15).then((rows) => rows[0].database_version),
+    newestMdRelease()
+  ]);
+  const value = (result) => result.status === "fulfilled" ? String(result.value) : null;
+  return { ygocdb: value(ygocdb), ygoprodeck: value(ygoprodeck), mdPool: value(mdPool) };
+}
+function sourcesChanged(built, latest) {
+  return Object.keys(latest).some((key) => latest[key] !== null && latest[key] !== built[key]);
+}
 async function downloadCards() {
-  console.error("Downloading card data (about 30 MB; first run or weekly refresh)...");
+  console.error("Downloading card data (about 30 MB; first run, a source changed, or the weekly refresh)...");
+  const sources = await checkVersions();
   const archive = unzipSync(await fetchBytes(YGOCDB_ZIP));
   const cdbCards = Object.values(JSON.parse(strFromU8(archive["cards.json"])));
   const ypdCards = (await fetchJson(YGOPRODECK_ALL, 180)).data;
-  const cards = mergeCards(cdbCards, ypdCards);
-  writeText(CARDS_CACHE, JSON.stringify({ version: CACHE_VERSION, cards }));
+  let pool = null;
+  try {
+    pool = await fetchMdPool();
+  } catch (error) {
+    console.error(`Could not read the Master Duel card pool from masterduelmeta.com (${error}); using YGOPRODeck's Master Duel rarities.`);
+    sources.mdPool = null;
+  }
+  const cards = mergeCards(cdbCards, ypdCards, pool);
+  const cache = {
+    version: CACHE_VERSION,
+    builtAt: (/* @__PURE__ */ new Date()).toISOString(),
+    sources,
+    mdSource: pool ? "masterduelmeta.com" : "YGOPRODeck",
+    cards
+  };
+  writeText(CARDS_CACHE, JSON.stringify(cache));
+  writeText(CHECKED_MARK, "");
   return cards;
 }
 var memo = null;
 function readCache() {
-  if (!existsSync3(CARDS_CACHE)) return null;
+  if (!existsSync5(CARDS_CACHE)) return null;
   const mtimeMs = statSync2(CARDS_CACHE).mtimeMs;
   if (memo?.mtimeMs !== mtimeMs) {
-    const cached = readJson(CARDS_CACHE);
-    if (cached.version !== CACHE_VERSION) return null;
-    memo = { mtimeMs, cards: cached.cards };
+    const cache = readJson(CARDS_CACHE);
+    if (cache.version !== CACHE_VERSION) return null;
+    memo = { mtimeMs, cache };
   }
-  return memo.cards;
+  return memo.cache;
 }
-async function loadCards(force = false) {
-  const cached = readCache();
-  if (cached && !force && ageOf(CARDS_CACHE) < CARDS_MAX_AGE) return cached;
+async function rebuild(cached) {
   try {
     return await downloadCards();
   } catch (error) {
     if (cached) {
       console.error(`Could not refresh card data (${error}); using the older cache.`);
-      return cached;
+      return cached.cards;
     }
     throw new Error(`Could not download card data: ${error}`);
   }
 }
+async function refreshIfChanged(cached, interval) {
+  if (ageOf(CHECKED_MARK) < interval) return null;
+  const latest = await checkVersions();
+  writeText(CHECKED_MARK, "");
+  return sourcesChanged(cached.sources, latest) ? rebuild(cached) : null;
+}
+async function loadCards(force = false) {
+  const cached = readCache();
+  if (!cached || force || ageOf(CARDS_CACHE) >= CARDS_MAX_AGE) return rebuild(cached);
+  return await refreshIfChanged(cached, CHECK_INTERVAL) ?? cached.cards;
+}
+async function reloadIfSourcesChanged() {
+  const cached = readCache();
+  return cached ? refreshIfChanged(cached, 300) : null;
+}
+function cardDataInfo() {
+  const cached = readCache();
+  return cached && { builtAt: cached.builtAt, sources: cached.sources, mdSource: cached.mdSource };
+}
 
 // src/query.ts
-var RARITY = { "Ultra Rare": "UR", "Super Rare": "SR", "Rare": "R", "Common": "N" };
 function norm(value) {
-  return value.replace(/[\s·・\-－'"“”‘’「」『』!！?？,，.。:：]/g, "").toLowerCase();
+  return value.replace(/[\s·・\-－'"“”‘’「」『』!！?？,，.。:：<>＜＞]/g, "").toLowerCase();
 }
 function normText(value) {
   return value.replace(/\s/g, "").replaceAll("\uFF0B", "+").toLowerCase();
+}
+function inMasterDuel(card, now = Date.now()) {
+  return card.mdRarity !== "" && (!card.mdRelease || Date.parse(card.mdRelease) <= now);
 }
 function names(card) {
   return [card.cn, card.md, card.sc, card.jp, card.en, ...card.aliases].filter(Boolean);
@@ -844,7 +974,7 @@ function inRange(value, spec) {
 }
 function searchCards(cards, filters) {
   const results = cards.filter((card) => {
-    if (!filters.allFormats && !card.mdRarity) return false;
+    if (!filters.allFormats && !inMasterDuel(card)) return false;
     const { kindTokens, raceTokens, attrTokens } = tokens(card);
     if (filters.kind?.some((kind) => !kindTokens.has(kind.toLowerCase()))) return false;
     if (filters.race && !raceTokens.has(filters.race.toLowerCase())) return false;
@@ -854,7 +984,7 @@ function searchCards(cards, filters) {
     if (filters.atk && !inRange(card.atk, filters.atk)) return false;
     if (filters.def && !inRange(card.def, filters.def)) return false;
     if (filters.archetype && !card.archetype.toLowerCase().includes(filters.archetype.toLowerCase())) return false;
-    if (filters.rarity && RARITY[card.mdRarity] !== filters.rarity.toUpperCase()) return false;
+    if (filters.rarity && card.mdRarity !== filters.rarity.toUpperCase()) return false;
     if (filters.name && !names(card).some((name) => norm(name).includes(norm(filters.name)))) return false;
     if (filters.text?.length) {
       const texts = `${normText(card.descZh + card.pdescZh)}
@@ -911,7 +1041,8 @@ function materials(card) {
   return isExtra && text ? text.split("\n")[0].trim() : "";
 }
 function formatCard(card, banlist) {
-  const rarity = RARITY[card.mdRarity] ?? (card.mdRarity || "\u672A\u5B9E\u88C5\u6216\u672A\u6536\u5F55 not in MD data");
+  let rarity = card.mdRarity || "\u672A\u5B9E\u88C5\u6216\u672A\u6536\u5F55 not in MD data";
+  if (card.mdRarity && !inMasterDuel(card)) rarity += `\uFF08\u5C06\u4E8E ${jstDate(card.mdRelease)} \u5B9E\u88C5\uFF09`;
   const lines = [
     `${namesLine(card)} | ${card.jp || "-"} | \u5361\u5BC6 ${card.id}`,
     card.typesZh || typesLine(card),
@@ -950,7 +1081,7 @@ function formatSearch(results, banlist, options) {
   const limit = options.limit ?? 60;
   const lines = [`\u5171 ${results.length} \u5F20\u7B26\u5408\u6761\u4EF6${options.allFormats ? "\uFF08\u542B MD \u672A\u5B9E\u88C5\u7684\u5361\uFF09" : "\uFF08\u4EC5 MD \u5DF2\u5B9E\u88C5\uFF09"}`];
   for (const card of results.slice(0, limit)) {
-    lines.push(`${namesLine(card)} | ${card.id} | ${typesLine(card)} | ${RARITY[card.mdRarity] ?? "-"} | ${banText(card, banlist)}`);
+    lines.push(`${namesLine(card)} | ${card.id} | ${typesLine(card)} | ${card.mdRarity || "-"} | ${banText(card, banlist)}`);
     if (options.full) lines.push(`    ${(card.descZh || card.descEn).replaceAll("\n", "\n    ")}`);
     else if (materials(card)) lines.push(`    \u7D20\u6750\uFF1A${materials(card)}`);
   }
@@ -977,44 +1108,32 @@ function formatBanlist(cards, banlist, options) {
   return lines.join("\n");
 }
 
-// src/notes.ts
-import { existsSync as existsSync4, readFileSync as readFileSync2 } from "node:fs";
-import { join as join2 } from "node:path";
-var NOTES_PATH = join2(CONFIG_DIR, "notes.md");
-var TEMPLATE = `# Master Duel AI Advisor notes
-
-Your preferences and the lessons the assistant should remember. Updating the skill does not change this file,
-and you can edit it by hand.
-
-## Preferences
-
-## Lessons
-`;
-var HEADINGS = { preference: "## Preferences", lesson: "## Lessons" };
-function addEntry(notes, kind, entry, date) {
-  const heading = HEADINGS[kind];
-  if (!notes.includes(heading)) notes = `${notes.replace(/\n+$/, "")}
-
-${heading}
-`;
-  const start = notes.indexOf(heading) + heading.length;
-  const next = notes.indexOf("\n## ", start);
-  const end = next === -1 ? notes.length : next;
-  const section = `${notes.slice(start, end).replace(/\n+$/, "")}
-- ${date} ${entry}
-`;
-  return notes.slice(0, start) + section + notes.slice(end);
+// src/service.ts
+async function lookup(queries) {
+  const banlist = await loadBanlist();
+  let result = formatLookup(await loadCards(), banlist, queries);
+  if (result.missing) {
+    const fresh = await reloadIfSourcesChanged();
+    if (fresh) result = formatLookup(fresh, banlist, queries);
+  }
+  return result;
 }
-function readNotes() {
-  return existsSync4(NOTES_PATH) ? readFileSync2(NOTES_PATH, "utf8") : null;
+async function search(filters) {
+  return formatSearch(searchCards(await loadCards(), filters), await loadBanlist(), filters);
 }
-function addNote(kind, entry) {
-  const date = (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA");
-  writeText(NOTES_PATH, addEntry(readNotes() ?? TEMPLATE, kind, entry, date));
+async function banlistText(options) {
+  const banlist = await loadBanlist();
+  return banlist && formatBanlist(await loadCards(), banlist, options);
 }
-function formatNotes() {
-  return `\u7B14\u8BB0\u6587\u4EF6\uFF1A${NOTES_PATH}
-${readNotes() ?? "\uFF08\u8FD8\u6CA1\u6709\u7B14\u8BB0\uFF09"}`;
+async function refresh() {
+  const cards = await loadCards(true);
+  const banlist = await loadBanlist(true);
+  const { sources, mdSource } = cardDataInfo();
+  return [
+    `\u5361\u7247\u6570\u636E ${cards.length} \u5F20\uFF0C\u5176\u4E2D MD \u5DF2\u5B9E\u88C5 ${cards.filter((card) => inMasterDuel(card)).length} \u5F20`,
+    `\u6570\u636E\u7248\u672C\uFF1A\u767E\u9E3D ${sources.ygocdb?.slice(0, 8) ?? "?"}\uFF0CYGOPRODeck ${sources.ygoprodeck ?? "?"}\uFF0CMD \u5361\u6C60\u6700\u65B0\u5B9E\u88C5 ${sources.mdPool ? jstDate(sources.mdPool) : "?"}\uFF08MD \u7A00\u6709\u5EA6\u6765\u6E90 ${mdSource}\uFF09`,
+    banlistNote(banlist)
+  ].join("\n");
 }
 
 // src/cli.ts
@@ -1033,7 +1152,7 @@ async function main(argv) {
   switch (command) {
     case "card": {
       if (args.length === 0) break;
-      const { text, missing } = formatLookup(await loadCards(), await loadBanlist(), args);
+      const { text, missing } = await lookup(args);
       console.log(text);
       return missing ? 1 : 0;
     }
@@ -1057,20 +1176,18 @@ async function main(argv) {
           limit: { type: "string", default: "60" }
         }
       });
-      const filters = { ...values, allFormats: values["all-formats"] };
-      const results = searchCards(await loadCards(), filters);
-      console.log(formatSearch(results, await loadBanlist(), { ...filters, limit: Number(values.limit) }));
+      console.log(await search({ ...values, allFormats: values["all-formats"], limit: Number(values.limit) }));
       return 0;
     }
     case "banlist": {
       const { values } = parseArgs({ args, options: { status: { type: "string" }, upcoming: { type: "boolean" } } });
       if (values.status && !["forbidden", "limited1", "limited2"].includes(values.status)) break;
-      const banlist = await loadBanlist();
-      if (!banlist) {
+      const text = await banlistText({ status: values.status, upcoming: values.upcoming });
+      if (!text) {
         console.error("\u6CA1\u80FD\u4E0B\u8F7D Master Duel \u7981\u9650\u8868\u3002");
         return 1;
       }
-      console.log(formatBanlist(await loadCards(), banlist, { status: values.status, upcoming: values.upcoming }));
+      console.log(text);
       return 0;
     }
     case "notes": {
@@ -1085,12 +1202,9 @@ async function main(argv) {
       console.log(formatNotes());
       return 0;
     }
-    case "update": {
-      const cards = await loadCards(true);
-      const banlist = await loadBanlist(true);
-      console.log(`\u5361\u7247\u6570\u636E ${cards.length} \u5F20\uFF0C\u5176\u4E2D MD \u5DF2\u5B9E\u88C5 ${cards.filter((card) => card.mdRarity).length} \u5F20\uFF1B${banlistNote(banlist)}`);
+    case "update":
+      console.log(await refresh());
       return 0;
-    }
   }
   console.error(USAGE);
   return 2;

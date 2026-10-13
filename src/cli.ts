@@ -1,10 +1,8 @@
 // Command line used by the Claude skill (bundled to skills/master-duel-ai-advisor/scripts/mdcard.mjs).
 import { parseArgs } from "node:util";
-import { loadBanlist, type Status } from "./banlist.ts";
-import { loadCards } from "./cards.ts";
-import { banlistNote, formatBanlist, formatLookup, formatSearch } from "./format.ts";
+import type { Status } from "./banlist.ts";
 import { NOTES_PATH, addNote, formatNotes } from "./notes.ts";
-import { searchCards } from "./query.ts";
+import { banlistText, lookup, refresh, search } from "./service.ts";
 
 const USAGE = `Yu-Gi-Oh! Master Duel card lookup
 
@@ -22,7 +20,7 @@ async function main(argv: string[]): Promise<number> {
   switch (command) {
     case "card": {
       if (args.length === 0) break;
-      const { text, missing } = formatLookup(await loadCards(), await loadBanlist(), args);
+      const { text, missing } = await lookup(args);
       console.log(text);
       return missing ? 1 : 0;
     }
@@ -46,20 +44,18 @@ async function main(argv: string[]): Promise<number> {
           limit: { type: "string", default: "60" },
         },
       });
-      const filters = { ...values, allFormats: values["all-formats"] };
-      const results = searchCards(await loadCards(), filters);
-      console.log(formatSearch(results, await loadBanlist(), { ...filters, limit: Number(values.limit) }));
+      console.log(await search({ ...values, allFormats: values["all-formats"], limit: Number(values.limit) }));
       return 0;
     }
     case "banlist": {
       const { values } = parseArgs({ args, options: { status: { type: "string" }, upcoming: { type: "boolean" } } });
       if (values.status && !["forbidden", "limited1", "limited2"].includes(values.status)) break;
-      const banlist = await loadBanlist();
-      if (!banlist) {
+      const text = await banlistText({ status: values.status as Status | undefined, upcoming: values.upcoming });
+      if (!text) {
         console.error("没能下载 Master Duel 禁限表。");
         return 1;
       }
-      console.log(formatBanlist(await loadCards(), banlist, { status: values.status as Status | undefined, upcoming: values.upcoming }));
+      console.log(text);
       return 0;
     }
     case "notes": {
@@ -73,12 +69,9 @@ async function main(argv: string[]): Promise<number> {
       console.log(formatNotes());
       return 0;
     }
-    case "update": {
-      const cards = await loadCards(true);
-      const banlist = await loadBanlist(true);
-      console.log(`卡片数据 ${cards.length} 张，其中 MD 已实装 ${cards.filter((card) => card.mdRarity).length} 张；${banlistNote(banlist)}`);
+    case "update":
+      console.log(await refresh());
       return 0;
-    }
   }
   console.error(USAGE);
   return 2;
