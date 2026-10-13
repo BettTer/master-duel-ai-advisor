@@ -1,11 +1,25 @@
 // EDOPro's rules engine (ygopro-core) compiled to WebAssembly: set up a duel, answer its decisions, and save and
 // restore its whole state by copying the WebAssembly memory.
-import { readFileSync } from "node:fs";
 import createCore, { OcgDuelMode, OcgLocation, OcgPosition, OcgProcessResult } from "../node_modules/@n1xx1/ocgcore-wasm/dist/index.js";
 import type { OcgCoreSync, OcgDuelHandle, OcgMessage, OcgResponse } from "../node_modules/@n1xx1/ocgcore-wasm/dist/index.js";
-import { scriptPath, type EngineCard } from "./engine-data.ts";
 
 export { OcgLocation, OcgPosition };
+
+/** A card as the engine reads it (OCG_CardData); race is a plain number so it fits in JSON. */
+export interface EngineCard {
+  code: number;
+  alias: number;
+  setcodes: number[];
+  type: number;
+  attack: number;
+  defense: number;
+  link_marker: number;
+  level: number;
+  lscale: number;
+  rscale: number;
+  race: number;
+  attribute: number;
+}
 
 const OPPONENT_CARD = 89631139; // Blue-Eyes White Dragon: a Normal Monster, so the opponent never has anything to do
 
@@ -25,7 +39,8 @@ export interface Engine {
   missingScripts: Set<string>;
 }
 
-export async function startEngine(data: Map<number, EngineCard>): Promise<Engine> {
+/** `readScript` returns a script file's text by name (c12345.lua, utility.lua…), or null when there is none. */
+export async function startEngine(data: Map<number, EngineCard>, readScript: (name: string) => string | null): Promise<Engine> {
   // The engine's whole state lives in its WebAssembly memory; catching the instance gives access to it.
   let memory: WebAssembly.Memory | null = null;
   const instantiate = WebAssembly.instantiate;
@@ -62,11 +77,11 @@ export async function startEngine(data: Map<number, EngineCard>): Promise<Engine
 
   const scripts = new Map<string, string>();
   const missingScripts = new Set<string>();
-  const readScript = (name: string): string => {
+  const script = (name: string): string => {
     if (!scripts.has(name)) {
-      const file = scriptPath(name);
-      if (!file) missingScripts.add(name);
-      scripts.set(name, file ? readFileSync(file, "utf8") : "");
+      const text = readScript(name);
+      if (text === null) missingScripts.add(name);
+      scripts.set(name, text ?? "");
     }
     return scripts.get(name)!;
   };
@@ -83,11 +98,11 @@ export async function startEngine(data: Map<number, EngineCard>): Promise<Engine
         team1: { drawCountPerTurn: 1, startingDrawCount: 0, startingLP: 8000 },
         team2: { drawCountPerTurn: 1, startingDrawCount: 5, startingLP: 8000 },
         cardReader: cardData as any,
-        scriptReader: readScript,
+        scriptReader: script,
         errorHandler: () => {},
       });
       if (!duel) throw new Error("规则引擎没能建立对局");
-      for (const file of ["constant.lua", "utility.lua"]) lib.loadScript(duel, file, readScript(file));
+      for (const file of ["constant.lua", "utility.lua"]) lib.loadScript(duel, file, script(file));
       const add = (team: 0 | 1, code: number, location: OcgLocation) =>
         lib.duelNewCard(duel, { team, duelist: 0, code, controller: team, location, sequence: 0, position: OcgPosition.FACEDOWN_DEFENSE });
       hand.forEach((code) => add(0, code, OcgLocation.HAND));

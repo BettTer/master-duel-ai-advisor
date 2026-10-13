@@ -1,6 +1,7 @@
 // Master Duel Meta (masterduelmeta.com): the Master Duel card pool, rarities and banlist.
 // Its API has no public documentation, so the endpoints are re-read from the site's own scripts.
 import { existsSync } from "node:fs";
+import type { MdCard } from "./merge.ts";
 import { cachePath, readJson } from "./cache.ts";
 import { fetchJson, fetchText } from "./http.ts";
 
@@ -57,10 +58,7 @@ function apiBase(): string {
   return endpoints.cards.slice(0, endpoints.cards.indexOf("cards?"));
 }
 
-export interface MdCard {
-  rarity: string; // UR, SR, R or N
-  release: string; // ISO time the card arrived in Master Duel, possibly in the future
-}
+export type { MdCard };
 
 /** Every card Master Duel Meta knows a Master Duel release for, by passcode. Alternate artworks are left out. */
 export async function fetchMdPool(get: GetJson = fetchJson): Promise<Map<number, MdCard>> {

@@ -97,7 +97,7 @@ async function main(argv: string[]): Promise<number> {
       if (positionals.length === 0 || !values.tiers || (positionals[0] === "-" && values.tiers === "-")) break;
       const deck = positionals[0] === "-" ? readFileSync(0, "utf8") : positionals.join(" ");
       const tiers = values.tiers === "-" ? readFileSync(0, "utf8") : existsSync(values.tiers) ? readFileSync(values.tiers, "utf8") : values.tiers;
-      const { profileText } = await import("./profile.ts");
+      const { profileText } = await import("./plan.ts");
       console.log(await profileText(deck, tiers, {
         hands: Number(values.hands ?? 100), seconds: Number(values.seconds ?? 5), change: values.change || undefined, progress: (text) => console.error(text),
       }));

@@ -1,6 +1,6 @@
 // References to other cards, such as "从卡组把「废品大王」以外的1张「废品」卡加入手卡": find the ones
 // that have nothing to take in the deck. Wording that is not fully understood is skipped, not guessed.
-import type { Card } from "./cards.ts";
+import type { Card } from "./merge.ts";
 import type { Deck, DeckEntry } from "./deck.ts";
 import { norm, zhKinds } from "./query.ts";
 

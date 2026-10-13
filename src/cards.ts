@@ -3,6 +3,9 @@ import { strFromU8, unzipSync } from "fflate";
 import { DAY, ageOf, cachePath, readJson, writeText } from "./cache.ts";
 import { fetchBytes, fetchJson } from "./http.ts";
 import { fetchMdPool, newestMdRelease, type MdCard } from "./mdm.ts";
+import { mergeCards, type Card } from "./merge.ts";
+
+export { mergeCards, type Card };
 
 const YGOCDB_ZIP = "https://ygocdb.com/api/v0/cards.zip";
 const YGOCDB_MD5 = "https://ygocdb.com/api/v0/cards.zip.md5";
@@ -13,36 +16,6 @@ const CHECKED_MARK = cachePath("cards_checked"); // its modification time is whe
 const CARDS_MAX_AGE = 7 * DAY;
 const CHECK_INTERVAL = 3600; // seconds between version checks
 const CACHE_VERSION = 3;
-const YGOPRODECK_RARITY: Record<string, string> = { "Ultra Rare": "UR", "Super Rare": "SR", "Rare": "R", "Common": "N" };
-
-export interface Card {
-  id: number;
-  cid: number | null; // KONAMI card database ID, used by banlists
-  altIds: number[];
-  setcodes: number[]; // archetype codes, as in YGOPro
-  cn: string; // YGOPro Chinese name
-  md: string; // Chinese name shown in Master Duel
-  sc: string;
-  jp: string;
-  en: string;
-  aliases: string[];
-  typesZh: string;
-  descZh: string;
-  pdescZh: string;
-  typeEn: string;
-  typeline: string[];
-  raceEn: string;
-  attrEn: string;
-  level: number | null;
-  link: number | null;
-  atk: number | null;
-  def: number | null;
-  archetype: string;
-  descEn: string;
-  mdRarity: string; // UR, SR, R or N; empty if the card is not in Master Duel
-  mdRelease: string; // ISO time the card arrives in Master Duel, if Master Duel Meta knows it
-  treatedAs: string;
-}
 
 /** Version markers of the three sources; null when a source could not be reached. */
 export interface SourceVersions {
@@ -57,77 +30,6 @@ interface CardCache {
   sources: SourceVersions;
   mdSource: string;
   cards: Card[];
-}
-
-/** YGOPro packs up to four 16-bit archetype codes into one number. */
-function splitSetcode(setcode: number): number[] {
-  const codes: number[] = [];
-  for (let rest = BigInt(setcode); rest > 0n; rest >>= 16n) codes.push(Number(rest & 0xffffn));
-  return codes;
-}
-
-function makeCard(cdb: any, ypd: any, pool: Map<number, MdCard> | null): Card {
-  cdb ??= {};
-  ypd ??= {};
-  const misc = ypd.misc_info?.[0] ?? {};
-  const text = cdb.text ?? {};
-  const id: number = cdb.id ?? ypd.id;
-  const altIds: number[] = (ypd.card_images ?? []).map((image: any) => image.id).filter((imageId: number) => imageId !== id);
-  const aliases = new Set<string>([cdb.nwbbs_n, cdb.cnocg_n, cdb.md_en_n, ypd.name].filter(Boolean));
-  // Master Duel Meta's rarity and release date win; YGOPRODeck covers cards it has no release for,
-  // such as cards that have been Forbidden since Master Duel launched.
-  const md = [id, ...altIds].map((cardId) => pool?.get(cardId)).find(Boolean);
-  return {
-    id,
-    cid: cdb.cid ?? misc.konami_id ?? null,
-    altIds,
-    setcodes: splitSetcode(cdb.data?.setcode ?? 0),
-    cn: cdb.cn_name ?? "",
-    md: cdb.md_name ?? "",
-    sc: cdb.sc_name ?? "",
-    jp: cdb.jp_name ?? "",
-    en: cdb.en_name || ypd.name || "",
-    aliases: [...aliases].sort(),
-    typesZh: text.types ?? "",
-    descZh: text.desc ?? "",
-    pdescZh: text.pdesc ?? "",
-    typeEn: ypd.type ?? "",
-    typeline: ypd.typeline ?? [],
-    raceEn: ypd.race ?? "",
-    attrEn: ypd.attribute ?? "",
-    level: ypd.level ?? null,
-    link: ypd.linkval ?? null,
-    atk: ypd.atk ?? null,
-    def: ypd.def ?? null,
-    archetype: ypd.archetype ?? "",
-    descEn: ypd.desc ?? "",
-    mdRarity: md?.rarity ?? YGOPRODECK_RARITY[misc.md_rarity] ?? "",
-    mdRelease: md?.release ?? "",
-    treatedAs: misc.treated_as ?? "",
-  };
-}
-
-/** Merge ygocdb (names, Chinese text), YGOPRODeck (English text) and the Master Duel card pool by passcode. */
-export function mergeCards(cdbCards: any[], ypdCards: any[], pool: Map<number, MdCard> | null): Card[] {
-  const ypdById = new Map<number, any>();
-  for (const card of ypdCards) {
-    for (const image of card.card_images ?? []) {
-      if (!ypdById.has(image.id)) ypdById.set(image.id, card);
-    }
-  }
-  for (const card of ypdCards) ypdById.set(card.id, card);
-
-  const merged: Card[] = [];
-  const used = new Set<number>();
-  for (const entry of cdbCards) {
-    const ypd = ypdById.get(entry.id);
-    if (ypd) used.add(ypd.id);
-    merged.push(makeCard(entry, ypd, pool));
-  }
-  for (const card of ypdCards) {
-    if (!used.has(card.id)) merged.push(makeCard(null, card, pool));
-  }
-  return merged;
 }
 
 export async function checkVersions(): Promise<SourceVersions> {

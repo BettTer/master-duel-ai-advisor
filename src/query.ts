@@ -1,4 +1,4 @@
-import type { Card } from "./cards.ts";
+import type { Card } from "./merge.ts";
 
 export function norm(value: string): string {
   return value.replace(/[\s·・\-－'"“”‘’「」『』!！?？,，.。:：<>＜＞]/g, "").toLowerCase();

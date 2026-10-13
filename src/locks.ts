@@ -1,6 +1,6 @@
 // Extra Deck locks such as "这个回合，自己不是同调怪兽不能从额外卡组特殊召唤", and which locks in a deck
 // cannot share a turn because no Extra Deck monster in the deck satisfies both.
-import type { Card } from "./cards.ts";
+import type { Card } from "./merge.ts";
 import { zhKinds } from "./query.ts";
 
 type InArchetype = (card: Card, archetype: string) => boolean;

@@ -3,30 +3,11 @@
 // changes), with the yaml-yugi limit regulation data (rebuilt daily from Yugipedia) as a fallback.
 import { existsSync } from "node:fs";
 import { DAY, ageOf, cachePath, readJson, writeText } from "./cache.ts";
-import type { Card } from "./cards.ts";
 import { fetchJson } from "./http.ts";
+import { jstDate, type Banlist, type Entry, type Regulation, type Status } from "./banstatus.ts";
+
+export * from "./banstatus.ts";
 import { ENDPOINTS_CACHE, MDM_KNOWN_ENDPOINTS, discoverMdmEndpoints, encodeQuery, type Endpoints, type GetJson } from "./mdm.ts";
-
-export type Status = "forbidden" | "limited1" | "limited2";
-export type BanStatus = Status | "unlimited" | "unknown";
-
-export interface Entry {
-  id?: number | null; // passcode
-  cid?: number; // KONAMI card database ID
-  name?: string;
-  status: Status;
-}
-
-export interface Regulation {
-  date: string;
-  entries: Entry[];
-}
-
-export interface Banlist {
-  source: string;
-  current: Regulation;
-  upcoming: Regulation | null;
-}
 
 const BANLIST_CACHE = cachePath("md_banlist.json");
 const BANLIST_MAX_AGE = DAY;
@@ -34,9 +15,6 @@ const BANLIST_MAX_AGE = DAY;
 const MDM_STATUS: Record<string, Status> = { "Forbidden": "forbidden", "Limited 1": "limited1", "Limited 2": "limited2" };
 const LIMIT_STATUS: Record<number, Status> = { 0: "forbidden", 1: "limited1", 2: "limited2" };
 const YAML_YUGI_URL = "https://dawnbrandbots.github.io/yaml-yugi-limit-regulation/master-duel/{}.vector.json";
-
-export const jstDate = (iso: string) =>
-  new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(new Date(iso)); // YYYY-MM-DD
 
 export async function readMasterDuelMeta(endpoints: Endpoints, get: GetJson = fetchJson): Promise<Omit<Banlist, "source">> {
   const rows: any[] = await get(encodeQuery(endpoints.cards));
@@ -146,35 +124,4 @@ export async function loadBanlist(force = false): Promise<Banlist | null> {
     }
   }
   return readJson(BANLIST_CACHE);
-}
-
-export function entryKeys(entry: Entry): string[] {
-  const keys: string[] = [];
-  if (entry.cid) keys.push(`cid:${entry.cid}`);
-  if (entry.id) keys.push(`id:${entry.id}`);
-  if (entry.name) keys.push(`name:${entry.name.toLowerCase()}`);
-  return keys;
-}
-
-export function cardKeys(card: Card): string[] {
-  return [
-    `cid:${card.cid}`,
-    ...[card.id, ...card.altIds].map((id) => `id:${id}`),
-    ...[card.en, ...card.aliases].filter(Boolean).map((name) => `name:${name.toLowerCase()}`),
-  ];
-}
-
-const indexes = new WeakMap<Regulation, Map<string, Status>>();
-
-export function banStatus(card: Card, regulation: Regulation): Status | "unlimited" {
-  let index = indexes.get(regulation);
-  if (!index) {
-    index = new Map(regulation.entries.flatMap((entry) => entryKeys(entry).map((key) => [key, entry.status] as const)));
-    indexes.set(regulation, index);
-  }
-  for (const key of cardKeys(card)) {
-    const status = index.get(key);
-    if (status) return status;
-  }
-  return "unlimited";
 }

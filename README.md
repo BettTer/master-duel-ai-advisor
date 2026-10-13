@@ -8,6 +8,8 @@ Tools that let an AI assistant help you build and tune Yu-Gi-Oh! Master Duel dec
 
 ## Installation
 
+The web version at https://bettter.github.io/master-duel-ai-advisor/ runs everything below in the browser, including the route planner, with no AI model and nothing to install.
+
 Every option needs Node.js 18 or later (the route planner needs 22.13 or later). The first run downloads about 30 MB of card data into `~/.cache/master-duel-ai-advisor`, and downloads it again whenever a data source publishes new data, such as a new Master Duel pack.
 
 **Claude Code.** Install the plugin, then ask about Master Duel cards or decks as usual:
@@ -81,7 +83,7 @@ These are data and arithmetic problems, so this project does not train a model. 
 6. **Theme-based deck building.** Start from a theme such as Ice Barrier and the engines commonly played with it.
 7. **Opening-hand route planner.** *Available going first.* For each hand it also shows the fallback board when the opponent uses Ash Blossom & Joyous Spring, Infinite Impermanence or Maxx "C" at the worst moment on the route, and the deck profile averages it over sampled hands.
 
-A static site on GitHub Pages will run lookup, calculations and checks in the browser without an AI model, and host the hand editor and route maps.
+The web version runs lookup, deck checks, the route planner and the deck profile in the browser; the hand editor and route maps live there.
 
 ## Data sources
 
@@ -104,6 +106,8 @@ npm run typecheck
 npm run build
 ```
 
+The web version is in `web/` (Vite and React). `npm run export:web-data` fetches the engine's card database and scripts, the Master Duel pool and the banlist into `web/public/`; `npm run web` starts it locally and `npm run build:web` builds it. GitHub Actions rebuilds and publishes it on every push and once a day.
+
 ## License
 
 [GNU AGPL v3 or later](LICENSE) applies to the code and documentation in this repository, the same license as the EDOPro core and card scripts the route planner runs on. Versions up to 0.5.0 were released under Apache 2.0. It does not cover KONAMI's card text or images.
@@ -117,6 +121,8 @@ npm run build
 > 这是一个非官方玩家项目，与 KONAMI 无关，也未得到 KONAMI 的认可。「游戏王」和「Master Duel」是 KONAMI 的商标。
 
 ## 安装
+
+网页版 https://bettter.github.io/master-duel-ai-advisor/ 在浏览器里直接运行下面的全部功能，包括路线规划，不需要 AI 模型，也不用安装。
 
 三种方式都需要 Node.js 18 或更高版本（路线规划需要 22.13 或更高）。第一次运行时会下载约 30 MB 的卡片数据到 `~/.cache/master-duel-ai-advisor`；之后只要有数据源发布了新数据（比如 MD 上了新卡包），就会重新下载。
 
@@ -191,7 +197,7 @@ npx -y -p master-duel-ai-advisor mdcard deck my-deck.ydk
 6. **按主题构筑。** 从一个主题（比如冰结界）和常与它搭配的轴开始。
 7. **起手展开路线规划。** *先手版本已可使用。* 每手起手还会给出对手在路线上最狠的时机用「灰流丽」、「无限泡影」或「增殖的G」时的妥协场；卡组全景把它在抽样的起手上做平均。
 
-GitHub Pages 上的静态网页会在浏览器里直接运行查卡、计算和检查，不依赖 AI 模型，起手编辑器和展开路线图也会做在这里。
+网页版在浏览器里运行查卡、卡组检查、路线规划和卡组全景，起手编辑器和路线图就在那里。
 
 ## 数据来源
 
@@ -213,6 +219,8 @@ npm test
 npm run typecheck
 npm run build
 ```
+
+网页版在 `web/`（Vite ＋ React）。`npm run export:web-data` 把规则引擎的卡库和脚本、MD 卡池、禁限表抓到 `web/public/`；`npm run web` 本地启动，`npm run build:web` 构建。GitHub Actions 在每次推送和每天定时重新构建并发布。
 
 ## 许可证
 

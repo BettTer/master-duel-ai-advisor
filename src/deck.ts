@@ -1,8 +1,6 @@
 // Deck import: deck pages on the official card database, YDKE strings, .ydk files and plain text lists.
-import { existsSync, readFileSync } from "node:fs";
-import { basename } from "node:path";
-import { banStatus, type Banlist } from "./banlist.ts";
-import type { Card } from "./cards.ts";
+import { banStatus, type Banlist } from "./banstatus.ts";
+import type { Card } from "./merge.ts";
 import { fetchText } from "./http.ts";
 import { inMasterDuel, matchCards, norm, zhKinds } from "./query.ts";
 
@@ -174,13 +172,9 @@ function fromIds(ids: Ids, lookup: Map<number, Card>, label: string): { entries:
 }
 
 /** Read a deck from a card database URL, a YDKE string, a .ydk file or its contents, or a plain list. */
-export async function readDeck(input: string, cards: Card[], get = fetchText): Promise<Deck> {
-  let text = input.trim();
-  let source = "";
-  if (!text.includes("\n") && existsSync(text)) {
-    source = basename(text);
-    text = readFileSync(text, "utf8").trim();
-  }
+/** Read a deck from its text (YDKE, a deck page URL, .ydk contents or a card list); `source` names a file it came from. */
+export async function readDeck(input: string, cards: Card[], get = fetchText, source = ""): Promise<Deck> {
+  const text = input.trim();
   const byPasscode = new Map<number, Card>();
   for (const card of cards) for (const id of [card.id, ...card.altIds]) if (!byPasscode.has(id)) byPasscode.set(id, card);
 

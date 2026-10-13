@@ -1,10 +1,10 @@
 // Text output shared by the command line and the MCP server.
-import { banStatus, cardKeys, entryKeys, jstDate, type BanStatus, type Banlist, type Status } from "./banlist.ts";
-import type { Card } from "./cards.ts";
+import { banStatus, cardKeys, entryKeys, jstDate, type BanStatus, type Banlist, type Status } from "./banstatus.ts";
+import type { Card } from "./merge.ts";
 import { SECTIONS, type Deck, type Section } from "./deck.ts";
 import type { Lock, LockPair, LockReport } from "./locks.ts";
 import { groupMatches, type Group, type Odds, type OddsReport, type Rules } from "./odds.ts";
-import { DRAW_PENALTY, LEVELS, type Board, type PlanResult } from "./plan.ts";
+import { DRAW_PENALTY, LEVELS, type Board, type PlanResult } from "./search.ts";
 import type { HandResult, Profile } from "./profile.ts";
 import type { Reference } from "./refs.ts";
 import { findCards, inMasterDuel, zhKinds } from "./query.ts";
@@ -260,7 +260,7 @@ export function formatOdds(
   return lines.join("\n");
 }
 
-const fieldText = (board: Board) => {
+export const fieldText = (board: Board) => {
   const monsters = board.field.map((card) => `「${card.cn || card.en}」`).join("＋") || "（没有怪兽）";
   return board.sets.length > 0 ? `${monsters}，后场 ${board.sets.map((card) => `「${card.cn || card.en}」`).join("")}` : monsters;
 };
@@ -324,50 +324,68 @@ const mean = (hands: HandResult[], pick: (hand: HandResult) => number) => {
   return weight === 0 ? 0 : hands.reduce((sum, hand) => sum + pick(hand) * hand.weight, 0) / weight;
 };
 const handValue = (hand: HandResult) => hand.board?.value ?? 0;
-/** The best level the hand puts on the board or brings out on the opponent's turn; -1 when only hand traps are left. */
+/** The best level the hand puts on the board or brings out on the opponent's turn; 99 when only hand traps are left. */
 const bestLevel = (hand: HandResult) => Math.min(...(hand.board?.counted.filter((item) => item.place !== "手里").map((item) => item.level) ?? []), 99);
-const handNames = (hand: HandResult) => hand.cards.map((card) => card.cn || card.en).join("、");
 
-function profileLines(profile: Profile, base?: Profile): string[] {
+export interface ProfileSummary {
+  average: number;
+  buckets: { label: string; share: number }[];
+  topBoards: { board: Board; share: number }[];
+  worst: HandResult[];
+  contributions: { card: Card; count: number; delta: number; brick: number }[];
+}
+
+/** The numbers behind a profile, for text and for the web. */
+export function summarizeProfile(profile: Profile): ProfileSummary {
   const total = profile.hands.reduce((sum, hand) => sum + hand.weight, 0);
   const share = (test: (hand: HandResult) => boolean) => mean(profile.hands, (hand) => (test(hand) ? 1 : 0));
-  const percent = (value: number) => `${(value * 100).toFixed(0)}%`;
-  const diff = (value: number, before?: number, digits = 1) => before === undefined ? "" : `（${value - before >= 0 ? "+" : "−"}${Math.abs(value - before).toFixed(digits)}）`;
-  const average = mean(profile.hands, handValue);
-  const lines = [`平均价值 ${average.toFixed(1)}${diff(average, base && mean(base.hands, handValue))}（${profile.samples} 手抽样，${profile.distinct} 种不同起手）`];
   const buckets: [string, (hand: HandResult) => boolean][] = [
     ["做出第一级以上的康", (hand) => bestLevel(hand) <= 1],
     ["最好只到第二级", (hand) => bestLevel(hand) >= 2 && bestLevel(hand) <= 5],
     ["只有处理或保护", (hand) => bestLevel(hand) >= 6 && bestLevel(hand) < 99],
     ["只剩手坑，场上什么都没有", (hand) => bestLevel(hand) === 99],
   ];
-  for (const [label, test] of buckets) {
-    const value = share(test);
-    const before = base ? mean(base.hands, (hand) => (test(hand) ? 1 : 0)) : undefined;
-    lines.push(`  ${label}：${percent(value)}${before === undefined ? "" : `（改前 ${percent(before)}）`}`);
+  const boards = new Map<string, { board: Board; weight: number }>();
+  for (const hand of profile.hands) {
+    if (!hand.board) continue;
+    const key = fieldText(hand.board);
+    boards.set(key, { board: hand.board, weight: (boards.get(key)?.weight ?? 0) + hand.weight });
   }
-  const boards = new Map<string, number>();
-  for (const hand of profile.hands) if (hand.board) boards.set(fieldText(hand.board), (boards.get(fieldText(hand.board)) ?? 0) + hand.weight);
-  const top = [...boards].sort((a, b) => b[1] - a[1]).slice(0, 5);
-  if (top.length > 0) lines.push("  最常见的终场：", ...top.map(([board, count]) => `    ${percent(count / total)} ${board}`));
-  const worst = [...profile.hands].sort((a, b) => handValue(a) - handValue(b)).slice(0, 5);
-  lines.push("  最差的起手：", ...worst.map((hand) => `    [${handValue(hand)}] ${handNames(hand)}${hand.board ? ` → ${fieldText(hand.board)}` : ""}`));
+  const cards = new Map<number, Card>();
+  for (const hand of profile.hands) for (const card of hand.cards) cards.set(card.id, card);
+  const contributions = [...cards.values()].map((card) => {
+    const holding = profile.hands.filter((hand) => hand.cards.some((other) => other.id === card.id));
+    const without = profile.hands.filter((hand) => !hand.cards.some((other) => other.id === card.id));
+    return { card, count: holding.reduce((sum, hand) => sum + hand.weight, 0), delta: mean(holding, handValue) - mean(without, handValue), brick: mean(holding, (hand) => (bestLevel(hand) === 99 ? 1 : 0)) };
+  }).filter((row) => row.count >= 3).sort((a, b) => b.delta - a.delta);
+  return {
+    average: mean(profile.hands, handValue),
+    buckets: buckets.map(([label, test]) => ({ label, share: share(test) })),
+    topBoards: [...boards.values()].sort((a, b) => b.weight - a.weight).slice(0, 5).map(({ board, weight }) => ({ board, share: weight / total })),
+    worst: [...profile.hands].sort((a, b) => handValue(a) - handValue(b)).slice(0, 5),
+    contributions,
+  };
+}
+
+const handNames = (hand: HandResult) => hand.cards.map((card) => card.cn || card.en).join("、");
+
+function profileLines(profile: Profile, base?: Profile): string[] {
+  const summary = summarizeProfile(profile);
+  const before = base ? summarizeProfile(base) : null;
+  const percent = (value: number) => `${(value * 100).toFixed(0)}%`;
+  const diff = (value: number, previous?: number) => previous === undefined ? "" : `（${value - previous >= 0 ? "+" : "−"}${Math.abs(value - previous).toFixed(1)}）`;
+  const lines = [`平均价值 ${summary.average.toFixed(1)}${diff(summary.average, before?.average)}（${profile.samples} 手抽样，${profile.distinct} 种不同起手）`];
+  summary.buckets.forEach((bucket, index) => {
+    lines.push(`  ${bucket.label}：${percent(bucket.share)}${before ? `（改前 ${percent(before.buckets[index].share)}）` : ""}`);
+  });
+  if (summary.topBoards.length > 0) lines.push("  最常见的终场：", ...summary.topBoards.map(({ board, share }) => `    ${percent(share)} ${fieldText(board)}`));
+  lines.push("  最差的起手：", ...summary.worst.map((hand) => `    [${handValue(hand)}] ${handNames(hand)}${hand.board ? ` → ${fieldText(hand.board)}` : ""}`));
   return lines;
 }
 
 /** What each card adds: the average value of hands holding it against hands without it. */
 function contributionLines(profile: Profile): string[] {
-  const byCard = new Map<number, { card: Card; with: HandResult[]; without: HandResult[] }>();
-  const cards = new Map<number, Card>();
-  for (const hand of profile.hands) for (const card of hand.cards) cards.set(card.id, card);
-  for (const [id, card] of cards) {
-    byCard.set(id, { card, with: profile.hands.filter((hand) => hand.cards.some((other) => other.id === id)), without: profile.hands.filter((hand) => !hand.cards.some((other) => other.id === id)) });
-  }
-  const rows = [...byCard.values()].map(({ card, with: holding, without }) => ({
-    card, count: holding.reduce((sum, hand) => sum + hand.weight, 0),
-    delta: mean(holding, handValue) - mean(without, handValue),
-    brick: mean(holding, (hand) => (bestLevel(hand) === 99 ? 1 : 0)),
-  })).filter((row) => row.count >= 3).sort((a, b) => b.delta - a.delta);
+  const rows = summarizeProfile(profile).contributions;
   return ["  每张卡的贡献（起手里有它时的平均价值，减去没有它时的；至少 3 手样本）：",
     ...rows.map((row) => `    ${row.delta >= 0 ? "+" : "−"}${Math.abs(row.delta).toFixed(1)}  「${row.card.cn || row.card.en}」（${row.count} 手，其中 ${(row.brick * 100).toFixed(0)}% 只剩手坑）`)];
 }

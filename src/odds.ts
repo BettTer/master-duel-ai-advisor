@@ -1,7 +1,7 @@
 // Opening-hand odds. The assistant writes, for each card that matters, what it needs and what it gives
 // ("必密巴：要 手里 攻或守2500 怪兽 → 能动"). This module works out which opening hands can start the deck's
 // plays and counts every possible hand exactly.
-import type { Card } from "./cards.ts";
+import type { Card } from "./merge.ts";
 import type { Deck, DeckEntry } from "./deck.ts";
 import { findCards, norm, zhKinds } from "./query.ts";
 import { hasName } from "./refs.ts";

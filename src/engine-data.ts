@@ -1,12 +1,15 @@
 // Data for the rules engine: ProjectIgnis' card databases (BabelCDB) and card scripts (CardScripts), the same data
 // EDOPro uses. Downloaded on first use, checked for new versions daily, and kept in the cache directory.
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { unzipSync } from "fflate";
 import { DAY, ageOf, cachePath, readJson, writeText } from "./cache.ts";
 import type { Card } from "./cards.ts";
 import { fetchBytes, fetchJson } from "./http.ts";
 import { inMasterDuel } from "./query.ts";
+import type { EngineCard } from "./engine.ts";
+
+export type { EngineCard };
 
 const BABEL_CONTENTS = "https://api.github.com/repos/ProjectIgnis/BabelCDB/contents";
 const SCRIPTS_COMMIT = "https://api.github.com/repos/ProjectIgnis/CardScripts/commits?per_page=1";
@@ -17,22 +20,6 @@ const VERSIONS_FILE = join(ENGINE_DIR, "versions.json"); // its modification tim
 export const SCRIPTS_DIR = join(ENGINE_DIR, "scripts");
 // Where scripts are looked up, in order. A few current cards live in pre-errata (Red-Eyes Darkness Metal Dragon).
 const SCRIPT_FOLDERS = ["official", "pre-release", ".", "pre-errata", "unofficial"];
-
-/** A card as the engine reads it (OCG_CardData); race is a plain number so it fits in JSON. */
-export interface EngineCard {
-  code: number;
-  alias: number;
-  setcodes: number[];
-  type: number;
-  attack: number;
-  defense: number;
-  link_marker: number;
-  level: number;
-  lscale: number;
-  rscale: number;
-  race: number;
-  attribute: number;
-}
 
 interface Versions {
   databases: Record<string, string>; // file name → blob sha
@@ -159,4 +146,10 @@ export function engineKnows(card: Card, data: Map<number, EngineCard>): boolean 
 /** Master Duel cards the engine cannot play yet. */
 export function engineGaps(cards: Card[], data: Map<number, EngineCard>): Card[] {
   return cards.filter((card) => inMasterDuel(card) && !engineKnows(card, data));
+}
+
+/** Read a script for the engine from the cached scripts; null when there is none. */
+export function readScriptFile(name: string): string | null {
+  const file = scriptPath(name);
+  return file ? readFileSync(file, "utf8") : null;
 }

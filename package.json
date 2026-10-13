@@ -34,15 +34,25 @@
     "build": "node scripts/build.mjs",
     "typecheck": "tsc",
     "test": "node --test \"test/**/*.test.ts\"",
-    "prepublishOnly": "npm test && npm run typecheck && npm run build"
+    "prepublishOnly": "npm test && npm run typecheck && npm run build",
+    "web": "vite --config web/vite.config.ts",
+    "build:web": "vite build --config web/vite.config.ts",
+    "typecheck:web": "tsc -p web/tsconfig.json",
+    "export:web-data": "node scripts/export-web-data.ts"
   },
   "devDependencies": {
     "@modelcontextprotocol/server": "^2.3.1",
     "@n1xx1/ocgcore-wasm": "npm:@jsr/n1xx1__ocgcore-wasm@^0.1.4",
     "@types/node": "^22.20.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.2.0",
     "esbuild": "^0.28.2",
     "fflate": "^0.8.3",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "typescript": "^7.0.2",
+    "vite": "^7.3.7",
     "zod": "^4.6.7"
   }
 }

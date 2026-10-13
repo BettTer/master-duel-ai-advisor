@@ -1,4 +1,6 @@
 // The operations both entry points offer: load the data, run the query, return text.
+import { existsSync, readFileSync } from "node:fs";
+import { basename } from "node:path";
 import { jstDate, loadBanlist, type Status } from "./banlist.ts";
 import { cardDataInfo, loadCards, reloadIfSourcesChanged } from "./cards.ts";
 import { checkDeck, readDeck, type Deck } from "./deck.ts";
@@ -35,12 +37,18 @@ export async function search(filters: SearchFilters & { full?: boolean; limit?: 
 
 export async function loadDeck(input: string): Promise<{ cards: Card[]; deck: Deck }> {
   let cards = await loadCards();
-  let deck = await readDeck(input, cards);
+  // A path to a deck file is read here; everything else is deck text.
+  let source = "";
+  if (!input.includes("\n") && existsSync(input.trim())) {
+    source = basename(input.trim());
+    input = readFileSync(input.trim(), "utf8");
+  }
+  let deck = await readDeck(input, cards, undefined, source);
   if (deck.unknown.length > 0) {
     const fresh = await reloadIfSourcesChanged(); // the deck may contain cards from a pack released today
     if (fresh) {
       cards = fresh;
-      deck = await readDeck(input, cards);
+      deck = await readDeck(input, cards, undefined, source);
     }
   }
   return { cards, deck };

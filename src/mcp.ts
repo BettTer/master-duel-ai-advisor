@@ -144,7 +144,7 @@ server.registerTool(
     annotations: { readOnlyHint: true },
   },
   async ({ deck, tiers, hands, seconds, change }) => {
-    const { profileText } = await import("./profile.ts");
+    const { profileText } = await import("./plan.ts");
     return text(await profileText(deck, tiers, { hands: hands ?? 100, seconds: seconds ?? 5, change }));
   },
 );
