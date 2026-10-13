@@ -50,7 +50,7 @@ Combo generation is not part of the initial scope. An assistant cannot reliably 
 ## Roadmap
 
 1. **Card lookup with Master Duel data.** *Available now.* Exact card text in Chinese, English and Japanese; the Chinese name shown in Master Duel; Master Duel rarity and banlist status, including announced changes that are not in effect yet; and filtered searches across the full card pool.
-2. **Deck import.** Load a deck from a YDKE string, a `.ydk` file or other common deck formats, so that the later tools work on the player's actual list instead of one typed out by hand.
+2. **Deck import.** *Available now.* Load a deck from a deck page on the official card database, a YDKE string, a `.ydk` file or a plain card list, and check its size, copies, banlist status and cards that are not in Master Duel, so that the later tools work on the player's actual list instead of one typed out by hand.
 3. **Consistency calculator.** Define which opening hands can start the deck—for example, “White Dragon works by itself; Cartesia needs any LIGHT or DARK monster”—and calculate exact brick rates going first and going second. The calculator will also show how those rates change when a card is added or removed.
 4. **Restriction and reference checks.** Detect incompatible “this turn you can only...” restrictions and effects that refer to cards the deck does not contain, such as a search effect with no remaining target or a reveal cost with no valid card in the Extra Deck.
 5. **Deck review and build suggestions.** Combine the previous tools into one report covering conflicts, brick rate, weak slots and possible replacements, including the trade-offs and crafting cost of each change.
@@ -104,7 +104,7 @@ For assistants other than Claude Code, add the MCP server to your client as a st
 }
 ```
 
-The server offers the same functions as the skill (`lookup_cards`, `search_cards`, `get_banlist`, `read_notes`, `add_note`) and includes the same working rules. In Claude Code, the skill alone is enough.
+The server offers the same functions as the skill (`lookup_cards`, `search_cards`, `import_deck`, `get_banlist`, `read_notes`, `add_note`) and includes the same working rules. In Claude Code, the skill alone is enough.
 
 ### Command line
 
@@ -114,9 +114,20 @@ The same lookups also work without an AI assistant:
 npx -y -p master-duel-ai-advisor mdcard card "Junk Meister"
 npx -y -p master-duel-ai-advisor mdcard search --kind synchro --level 12 --text "1 Tuner + 1+ non-Tuner"
 npx -y -p master-duel-ai-advisor mdcard banlist --status limited1
+npx -y -p master-duel-ai-advisor mdcard deck my-deck.ydk
 ```
 
 Run `mdcard` without arguments to see every command and filter.
+
+### Importing a deck
+
+Give the assistant (or `mdcard deck`) any of these:
+
+- **A deck page on the official card database.** Master Duel decks can be sent to the card database (db.yugioh-card.com) through the game's KONAMI ID link. Copy the deck page's URL. The deck has to be public, because private decks can't be read without logging in. Decks are private by default; to make one public, open it for editing, tap the tag icon next to the deck name, choose a deck type, turn the public setting on and save.
+- **A YDKE string or a `.ydk` file**, as exported by EDOPro, YGOPRODeck and similar tools.
+- **A card list**, one card per line with an optional count, such as `3 灰流丽`, `Ash Blossom x3` or `灰流うらら ×3`. Chinese, English and Japanese names all work.
+
+The result lists every card with its rarity and banlist status, the deck's rarity totals, and any problems with deck size, copies, the Master Duel banlist or cards that are not in Master Duel.
 
 ## Personal notes
 
@@ -202,7 +213,7 @@ MD 有独立的禁限表。按照 TCG 或 OCG 禁限表给出的建议，可能�
 ## 路线图
 
 1. **带 MD 数据的查卡功能。** *已可使用。* 提供中、英、日三语的准确卡文、MD 中显示的中文卡名、MD 稀有度和禁限状态（包括已公布但尚未生效的变动），并支持按条件筛选完整卡池。
-2. **卡组导入。** 支持通过 YDKE 字符串、`.ydk` 文件以及其他常见格式导入卡组，让后面的工具直接分析玩家实际使用的卡表，而不用手动逐张输入。
+2. **卡组导入。** *已可使用。* 支持通过官方卡片数据库的卡组页面、YDKE 字符串、`.ydk` 文件或纯文本卡表导入卡组，并检查张数、同名卡、禁限和 MD 未实装的卡，让后面的工具直接分析玩家实际使用的卡表，而不用手动逐张输入。
 3. **稳定性计算器。** 先定义哪些起手可以展开，例如“白龙单卡能动；卡尔特西娅需要配一只光属性或暗属性怪兽”，再精确计算先手、后手的卡手率，以及增加或减少一张卡后概率如何变化。
 4. **限制与引用检查。** 查找互相冲突的“这个回合只能……”限制，以及效果中提到但卡组里并不存在的卡，例如已经没有合法目标的检索效果，或额外卡组里没有合法卡片的展示费用。
 5. **卡组体检和构筑建议。** 把前面的工具合成一份报告，列出卡片冲突、卡手率、较弱的位置和可选的替换方案，并说明每种调整的代价和合成成本。
@@ -256,7 +267,7 @@ node ~/.claude/skills/master-duel-ai-advisor/scripts/mdcard.mjs card 废品大�
 }
 ```
 
-这个服务提供和 Skill 相同的功能（`lookup_cards`、`search_cards`、`get_banlist`、`read_notes`、`add_note`），也带有同样的使用规则。在 Claude Code 里只用 Skill 就够了。
+这个服务提供和 Skill 相同的功能（`lookup_cards`、`search_cards`、`import_deck`、`get_banlist`、`read_notes`、`add_note`），也带有同样的使用规则。在 Claude Code 里只用 Skill 就够了。
 
 ### 命令行
 
@@ -266,9 +277,20 @@ node ~/.claude/skills/master-duel-ai-advisor/scripts/mdcard.mjs card 废品大�
 npx -y -p master-duel-ai-advisor mdcard card 废品大王
 npx -y -p master-duel-ai-advisor mdcard search --kind 同调 --level 12 --text "调整＋调整以外的怪兽1只以上"
 npx -y -p master-duel-ai-advisor mdcard banlist --status limited1
+npx -y -p master-duel-ai-advisor mdcard deck my-deck.ydk
 ```
 
 不带参数运行 `mdcard` 可以看到所有命令和筛选条件。
+
+### 导入卡组
+
+把下面任意一种交给 AI 助手（或 `mdcard deck`）：
+
+- **官方卡片数据库上的卡组页面。** MD 里的卡组可以通过 KONAMI ID 联动导到官方卡片数据库（db.yugioh-card.com），复制那副卡组页面的网址即可。卡组需要设为公开，不公开的卡组不登录读不到。卡组默认不公开：打开卡组的编辑页面，点卡组名旁边的标签图标，选好卡组类型，打开公开设置后保存即可。
+- **YDKE 字符串或 `.ydk` 文件**，EDOPro、YGOPRODeck 等工具都能导出。
+- **纯文本卡表**，一行一张卡，可以带张数，比如 `3 灰流丽`、`Ash Blossom x3`、`灰流うらら ×3`，中、英、日卡名都可以。
+
+结果会列出每张卡的稀有度和禁限状态、整副卡组的稀有度张数，以及张数、同名卡、MD 禁限和 MD 未实装方面的问题。
 
 ## 个人笔记
 

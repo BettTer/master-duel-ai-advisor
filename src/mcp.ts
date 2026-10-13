@@ -4,12 +4,13 @@ import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import * as z from "zod/v4";
 import packageInfo from "../package.json" with { type: "json" };
 import { addNote, formatNotes } from "./notes.ts";
-import { banlistText, lookup, search } from "./service.ts";
+import { banlistText, importDeck, lookup, search } from "./service.ts";
 
 // The working rules from SKILL.md, for clients that only see this server. Keep the two in step.
 const INSTRUCTIONS = `Verified Yu-Gi-Oh! Master Duel data for deckbuilding advice. Use these tools whenever the user talks about Master Duel cards or decks.
 
 - At the start of a Master Duel conversation, call read_notes and follow the user's preferences there. They change how you answer and what you recommend, but never relax the rules below. When the user states a lasting preference, or corrects you in a way that should still apply next time, save it with add_note and tell them in one line what you saved.
+- When the user shares a deck (a deck URL from the official card database db.yugioh-card.com, a YDKE string, a .ydk file or a card list), call import_deck first and mention the problems it reports.
 - Call lookup_cards for every card your advice depends on and quote the sentence that matters. Do not describe effects from memory.
 - Use only the Master Duel banlist the tools report. TCG and OCG lists do not apply. When results show an announced change that is not in effect yet, mention it.
 - When the user needs a card for a slot, call search_cards with the constraints first, show the realistic candidates with rarity and banlist status, then recommend. Card text phrases work best in Chinese, where wording is more uniform; when completeness matters, also search once without the phrase.
@@ -61,6 +62,18 @@ server.registerTool(
     annotations: { readOnlyHint: true },
   },
   async (filters) => text(await search(filters)),
+);
+
+server.registerTool(
+  "import_deck",
+  {
+    description: "Read a Master Duel deck and check it. Accepts the URL of a public deck page on the official Yu-Gi-Oh! card database (db.yugioh-card.com, which Master Duel decks can be exported to), a YDKE string, the contents of a .ydk file, or a plain list with one card per line such as \"3 灰流丽\", \"Ash Blossom & Joyous Spring x3\" or \"灰流うらら ×3\". Returns every card with its rarity and banlist status, the deck's rarity totals, and problems with deck size, copies, the Master Duel banlist and cards not in Master Duel.",
+    inputSchema: z.object({
+      deck: z.string().min(1).describe("Deck URL, YDKE string, .ydk contents or a card list"),
+    }),
+    annotations: { readOnlyHint: true },
+  },
+  async ({ deck }) => text(await importDeck(deck)),
 );
 
 server.registerTool(

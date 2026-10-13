@@ -17,20 +17,27 @@ function names(card: Card): string[] {
   return [card.cn, card.md, card.sc, card.jp, card.en, ...card.aliases].filter(Boolean);
 }
 
-/** Cards matching a passcode, or a name in any language: exact matches if any, otherwise partial ones. */
-export function findCards(cards: Card[], query: string): Card[] {
+/** Cards whose passcode or name (any language) equals the query, and cards whose name contains it. */
+export function matchCards(cards: Card[], query: string): { exact: Card[]; partial: Card[] } {
   if (/^\d+$/.test(query)) {
     const id = Number(query);
-    return cards.filter((card) => card.id === id || card.altIds.includes(id));
+    return { exact: cards.filter((card) => card.id === id || card.altIds.includes(id)), partial: [] };
   }
   const target = norm(query);
   const exact: Card[] = [];
   const partial: Card[] = [];
+  if (!target) return { exact, partial };
   for (const card of cards) {
     const normalized = names(card).map(norm);
     if (normalized.includes(target)) exact.push(card);
     else if (normalized.some((name) => name.includes(target))) partial.push(card);
   }
+  return { exact, partial };
+}
+
+/** Exact matches if any, otherwise partial ones. */
+export function findCards(cards: Card[], query: string): Card[] {
+  const { exact, partial } = matchCards(cards, query);
   return exact.length > 0 ? exact : partial;
 }
 

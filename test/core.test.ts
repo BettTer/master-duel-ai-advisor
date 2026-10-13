@@ -1,19 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { banStatus, readMasterDuelMeta, type Regulation } from "../src/banlist.ts";
-import { mergeCards, sourcesChanged, type Card } from "../src/cards.ts";
+import { mergeCards, sourcesChanged } from "../src/cards.ts";
 import { discoverMdmEndpoints, fetchMdPool } from "../src/mdm.ts";
 import { addEntry } from "../src/notes.ts";
 import { findCards, inMasterDuel, inRange, searchCards } from "../src/query.ts";
-
-function card(fields: Partial<Card>): Card {
-  return {
-    id: 1, cid: null, altIds: [], cn: "", md: "", sc: "", jp: "", en: "", aliases: [],
-    typesZh: "", descZh: "", pdescZh: "", typeEn: "", typeline: [], raceEn: "", attrEn: "",
-    level: null, link: null, atk: null, def: null, archetype: "", descEn: "", mdRarity: "N", mdRelease: "", treatedAs: "",
-    ...fields,
-  };
-}
+import { card } from "./helpers.ts";
 
 const meister = card({
   id: 73218792, cid: 22310, cn: "废品大王", md: "废品大师", en: "Junk Meister",

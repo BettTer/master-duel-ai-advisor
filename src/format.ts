@@ -1,6 +1,7 @@
 // Text output shared by the command line and the MCP server.
 import { banStatus, cardKeys, entryKeys, jstDate, type BanStatus, type Banlist, type Status } from "./banlist.ts";
 import type { Card } from "./cards.ts";
+import { SECTIONS, type Deck, type Section } from "./deck.ts";
 import { findCards, inMasterDuel, zhKinds } from "./query.ts";
 
 const BAN_LABEL: Record<BanStatus, string> = {
@@ -119,5 +120,35 @@ export function formatBanlist(cards: Card[], banlist: Banlist, options: { status
       .sort();
     lines.push("", `${BAN_LABEL[status]}：${rows.length} 张`, ...rows);
   }
+  return lines.join("\n");
+}
+
+const SECTION_LABEL: Record<Section, string> = { main: "主卡组", extra: "额外卡组", side: "副卡组" };
+
+export function formatDeck(deck: Deck, issues: string[], banlist: Banlist | null): string {
+  const size = (section: Section) => deck[section].reduce((sum, entry) => sum + entry.count, 0);
+  const byRarity = new Map<string, number>();
+  for (const section of SECTIONS) {
+    for (const { card, count } of deck[section]) {
+      const rarity = card.mdRarity || "MD 里没有";
+      byRarity.set(rarity, (byRarity.get(rarity) ?? 0) + count);
+    }
+  }
+  const cost = ["UR", "SR", "R", "N", "MD 里没有"].filter((rarity) => byRarity.has(rarity))
+    .map((rarity) => `${rarity} ${byRarity.get(rarity)} 张`).join("，");
+  const lines = [
+    `卡组：${deck.name || "（没有名字）"}（来源：${deck.source}）`,
+    SECTIONS.map((section) => `${SECTION_LABEL[section]} ${size(section)} 张`).join("｜"),
+    `稀有度（按张数）：${cost || "无"}`,
+  ];
+  for (const section of SECTIONS) {
+    if (deck[section].length === 0) continue;
+    lines.push("", `${SECTION_LABEL[section]}：`);
+    for (const { card, count } of deck[section]) {
+      lines.push(`  ${count} ${namesLine(card)} | ${card.mdRarity || "-"} | ${banText(card, banlist)}`);
+    }
+  }
+  lines.push("", "检查：", ...(issues.length > 0 ? issues.map((issue) => `  - ${issue}`) : ["  没有发现张数、禁限或实装方面的问题。"]));
+  lines.push(`（${banlistNote(banlist)}）`);
   return lines.join("\n");
 }

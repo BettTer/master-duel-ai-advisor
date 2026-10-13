@@ -1,8 +1,9 @@
 // Command line used by the Claude skill (bundled to skills/master-duel-ai-advisor/scripts/mdcard.mjs).
+import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import type { Status } from "./banlist.ts";
 import { NOTES_PATH, addNote, formatNotes } from "./notes.ts";
-import { banlistText, lookup, refresh, search } from "./service.ts";
+import { banlistText, importDeck, lookup, refresh, search } from "./service.ts";
 
 const USAGE = `Yu-Gi-Oh! Master Duel card lookup
 
@@ -11,6 +12,8 @@ const USAGE = `Yu-Gi-Oh! Master Duel card lookup
       --name TEXT  --text TEXT (repeatable)  --kind KIND (repeatable)  --race TYPE  --attr ATTRIBUTE
       --level N|A-B  --link N|A-B  --atk N|A-B  --def N|A-B  --archetype NAME  --rarity UR|SR|R|N
       --all-formats  --full  --limit N
+  mdcard deck <deck>                       read and check a deck: a card database deck URL, a YDKE string,
+                                           a .ydk file, or a text list ("-" reads it from standard input)
   mdcard banlist [--status forbidden|limited1|limited2] [--upcoming]
   mdcard notes [--preference TEXT | --lesson TEXT]
   mdcard update                            re-download card data and the banlist now`;
@@ -45,6 +48,11 @@ async function main(argv: string[]): Promise<number> {
         },
       });
       console.log(await search({ ...values, allFormats: values["all-formats"], limit: Number(values.limit) }));
+      return 0;
+    }
+    case "deck": {
+      if (args.length === 0) break;
+      console.log(await importDeck(args[0] === "-" ? readFileSync(0, "utf8") : args.join(" ")));
       return 0;
     }
     case "banlist": {

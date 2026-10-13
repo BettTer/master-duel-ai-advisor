@@ -1,7 +1,8 @@
 // The operations both entry points offer: load the data, run the query, return text.
 import { jstDate, loadBanlist, type Status } from "./banlist.ts";
 import { cardDataInfo, loadCards, reloadIfSourcesChanged } from "./cards.ts";
-import { banlistNote, formatBanlist, formatLookup, formatSearch } from "./format.ts";
+import { checkDeck, readDeck } from "./deck.ts";
+import { banlistNote, formatBanlist, formatDeck, formatLookup, formatSearch } from "./format.ts";
 import { inMasterDuel, searchCards, type SearchFilters } from "./query.ts";
 
 /** Full details for each query. If one matched nothing, check right away whether a source has newer data. */
@@ -17,6 +18,21 @@ export async function lookup(queries: string[]): Promise<{ text: string; missing
 
 export async function search(filters: SearchFilters & { full?: boolean; limit?: number }): Promise<string> {
   return formatSearch(searchCards(await loadCards(), filters), await loadBanlist(), filters);
+}
+
+/** Read a deck (card database URL, YDKE, .ydk or a plain list) and check it. */
+export async function importDeck(input: string): Promise<string> {
+  const banlist = await loadBanlist();
+  let cards = await loadCards();
+  let deck = await readDeck(input, cards);
+  if (deck.unknown.length > 0) {
+    const fresh = await reloadIfSourcesChanged(); // the deck may contain cards from a pack released today
+    if (fresh) {
+      cards = fresh;
+      deck = await readDeck(input, cards);
+    }
+  }
+  return formatDeck(deck, checkDeck(deck, cards, banlist), banlist);
 }
 
 /** The banlist as text, or null if it could never be downloaded. */

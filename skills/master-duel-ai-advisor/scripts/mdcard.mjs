@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 // src/cli.ts
+import { readFileSync as readFileSync4 } from "node:fs";
 import { parseArgs } from "node:util";
 
 // src/notes.ts
@@ -917,6 +918,10 @@ function cardDataInfo() {
   return cached && { builtAt: cached.builtAt, sources: cached.sources, mdSource: cached.mdSource };
 }
 
+// src/deck.ts
+import { existsSync as existsSync6, readFileSync as readFileSync3 } from "node:fs";
+import { basename } from "node:path";
+
 // src/query.ts
 function norm(value) {
   return value.replace(/[\s·・\-－'"“”‘’「」『』!！?？,，.。:：<>＜＞]/g, "").toLowerCase();
@@ -930,19 +935,24 @@ function inMasterDuel(card, now = Date.now()) {
 function names(card) {
   return [card.cn, card.md, card.sc, card.jp, card.en, ...card.aliases].filter(Boolean);
 }
-function findCards(cards, query) {
+function matchCards(cards, query) {
   if (/^\d+$/.test(query)) {
     const id = Number(query);
-    return cards.filter((card) => card.id === id || card.altIds.includes(id));
+    return { exact: cards.filter((card) => card.id === id || card.altIds.includes(id)), partial: [] };
   }
   const target = norm(query);
   const exact = [];
   const partial = [];
+  if (!target) return { exact, partial };
   for (const card of cards) {
     const normalized = names(card).map(norm);
     if (normalized.includes(target)) exact.push(card);
     else if (normalized.some((name) => name.includes(target))) partial.push(card);
   }
+  return { exact, partial };
+}
+function findCards(cards, query) {
+  const { exact, partial } = matchCards(cards, query);
   return exact.length > 0 ? exact : partial;
 }
 function zhKinds(card) {
@@ -995,6 +1005,206 @@ ${normText(card.descEn)}`;
   });
   const rank = (card) => card.level || card.link || 0;
   return results.sort((a, b) => rank(b) - rank(a) || (a.en < b.en ? -1 : a.en > b.en ? 1 : 0));
+}
+
+// src/deck.ts
+var SECTIONS = ["main", "extra", "side"];
+var emptyIds = () => ({ main: [], extra: [], side: [] });
+function parseYdke(text) {
+  const match = text.trim().match(/^ydke:\/\/([^!]*)!([^!]*)!([^!]*)!?$/);
+  if (!match) throw new Error("\u8FD9\u4E0D\u662F\u6709\u6548\u7684 YDKE \u5B57\u7B26\u4E32\u3002");
+  const decode = (base64) => {
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+    const view = new DataView(bytes.buffer);
+    return Array.from({ length: Math.floor(bytes.length / 4) }, (_, i2) => view.getUint32(i2 * 4, true));
+  };
+  return { main: decode(match[1]), extra: decode(match[2]), side: decode(match[3]) };
+}
+function parseYdk(text) {
+  const ids = emptyIds();
+  let section = "main";
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line === "#main") section = "main";
+    else if (line === "#extra") section = "extra";
+    else if (line === "!side") section = "side";
+    else if (/^\d+$/.test(line)) ids[section].push(Number(line));
+  }
+  return ids;
+}
+function parseDeckPage(html) {
+  const cids = emptyIds();
+  for (const section of SECTIONS) {
+    const block = html.match(new RegExp(`<div id="${section}" class="card_set">([\\s\\S]*?)<!--#${section}-->`));
+    if (block) cids[section] = [...block[1].matchAll(/card_search\.action\?ope=2&(?:amp;)?cid=(\d+)/g)].map((match) => Number(match[1]));
+  }
+  const title = html.match(/og:title" content="([^"|]*?)\s*\|/);
+  return { name: title ? title[1].trim() : "", cids };
+}
+var DECK_PAGE = /https?:\/\/www\.db\.yugioh-card\.com\/yugiohdb\/member_deck\.action\?\S+/;
+async function fetchDeckPage(url, get = fetchText) {
+  const params = new URL(url).searchParams;
+  const cgid = params.get("cgid");
+  const dno = params.get("dno");
+  if (!cgid || !dno) throw new Error("\u5361\u7EC4\u7F51\u5740\u91CC\u7F3A\u5C11 cgid \u6216 dno\u3002");
+  const page = parseDeckPage(await get(
+    `https://www.db.yugioh-card.com/yugiohdb/member_deck.action?ope=1&cgid=${cgid}&dno=${dno}&request_locale=ja`
+  ));
+  if (SECTIONS.every((section) => page.cids[section].length === 0)) {
+    throw new Error("\u8BFB\u4E0D\u5230\u8FD9\u526F\u5361\u7EC4\u3002\u5B98\u65B9\u5361\u7247\u6570\u636E\u5E93\u4E0A\u7684\u5361\u7EC4\u8981\u8BBE\u4E3A\u516C\u5F00\uFF0C\u4E0D\u767B\u5F55\u624D\u80FD\u770B\u5230\uFF1B\u4E5F\u53EF\u4EE5\u628A\u5361\u8868\u7684\u6587\u5B57\u590D\u5236\u8FC7\u6765\u3002");
+  }
+  return page;
+}
+var SECTION_HEADERS = [
+  [/^(extra|额外|エクストラ)$/, "extra"],
+  [/^(side|副|备牌|サイド)$/, "side"],
+  [/^(main|主|メイン|monsters?|怪兽|怪獣|モンスター|spells?|魔法|traps?|陷阱|罠)$/, "main"]
+];
+function headerSection(line) {
+  const key = line.toLowerCase().replace(/[\d\s:：()（）[\]【】\-#!*=]|deck|cards?|卡组|卡牌|デッキ|カード|合計|合计|张|枚/g, "");
+  return SECTION_HEADERS.find(([pattern]) => pattern.test(key))?.[1] ?? null;
+}
+function resolveName(cards, name) {
+  const { exact, partial } = matchCards(cards, name);
+  const single = (list) => list.length > 0 && list.every((card) => card.id === list[0].id);
+  if (single(exact)) return { card: exact[0], partial: false };
+  if (exact.length === 0 && single(partial)) return { card: partial[0], partial: true };
+  return { candidates: (exact.length > 0 ? exact : partial).slice(0, 3) };
+}
+var cardLabel = (card) => `\u300C${card.cn || card.en}\u300D`;
+var isExtraDeckMonster = (card) => ["\u878D\u5408", "\u540C\u8C03", "\u8D85\u91CF", "\u8FDE\u63A5"].some((kind) => zhKinds(card).kinds.has(kind)) || /Fusion|Synchro|XYZ|Link/.test(card.typeEn);
+var COUNT_PATTERNS = [
+  [/^(\d+)\s*[xX×*]?\s+(.+)$/, 1, 2],
+  [/^(\d+)[xX×*](.+)$/, 1, 2],
+  [/^(.+?)\s*[xX×*]\s*(\d+)$/, 2, 1],
+  [/^(.+?)\s+(\d+)\s*(?:张|枚|copies)?$/, 2, 1]
+];
+function parseTextList(text, cards) {
+  const entries = [];
+  const unknown = [];
+  const guessed = [];
+  let section = "main";
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/^[\s\-*•・]+/, "").trim();
+    if (!line) continue;
+    const attempts = [[line, 1]];
+    for (const [pattern, countGroup, nameGroup] of COUNT_PATTERNS) {
+      const match = line.match(pattern);
+      if (match) attempts.push([match[nameGroup].trim(), Number(match[countGroup])]);
+    }
+    const resolved = attempts.map(([name, count]) => ({ name, count, result: resolveName(cards, name) }));
+    const exact = resolved.find(({ result }) => "card" in result && !result.partial);
+    if (!exact) {
+      const header = headerSection(line);
+      if (header) {
+        section = header;
+        continue;
+      }
+    }
+    const pick = exact ?? resolved.find(({ result }) => "card" in result);
+    if (!pick || !("card" in pick.result)) {
+      const candidates = [...new Set(resolved.flatMap(({ result }) => "candidates" in result ? result.candidates : []))];
+      unknown.push(candidates.length > 0 ? `${line}\uFF08\u53EF\u80FD\u662F\uFF1A${candidates.map(cardLabel).join("\u3001")}\uFF09` : line);
+      continue;
+    }
+    const { card, partial } = pick.result;
+    if (partial) guessed.push(`${pick.name} \u2192 ${cardLabel(card)}`);
+    entries.push([section === "main" && isExtraDeckMonster(card) ? "extra" : section, card, pick.count]);
+  }
+  return { entries, unknown, guessed };
+}
+function buildDeck(name, source, entries, unknown, guessed = []) {
+  const deck = { name, source, main: [], extra: [], side: [], unknown, guessed };
+  for (const [section, card, count] of entries) {
+    const existing = deck[section].find((entry) => entry.card.id === card.id);
+    if (existing) existing.count += count;
+    else deck[section].push({ card, count });
+  }
+  return deck;
+}
+function fromIds(ids, lookup2, label) {
+  const entries = [];
+  const unknown = /* @__PURE__ */ new Set();
+  for (const section of SECTIONS) {
+    for (const id of ids[section]) {
+      const card = lookup2.get(id);
+      if (card) entries.push([section, card, 1]);
+      else unknown.add(`${label} ${id}`);
+    }
+  }
+  return { entries, unknown: [...unknown] };
+}
+async function readDeck(input, cards, get = fetchText) {
+  let text = input.trim();
+  let source = "";
+  if (!text.includes("\n") && existsSync6(text)) {
+    source = basename(text);
+    text = readFileSync3(text, "utf8").trim();
+  }
+  const byPasscode = /* @__PURE__ */ new Map();
+  for (const card of cards) for (const id of [card.id, ...card.altIds]) if (!byPasscode.has(id)) byPasscode.set(id, card);
+  if (text.startsWith("ydke://")) {
+    const { entries: entries2, unknown: unknown2 } = fromIds(parseYdke(text), byPasscode, "\u5361\u5BC6");
+    return buildDeck("", source || "YDKE", entries2, unknown2);
+  }
+  const url = text.match(DECK_PAGE);
+  if (url && !text.includes("\n")) {
+    const page = await fetchDeckPage(url[0], get);
+    const byCid = new Map(cards.filter((card) => card.cid).map((card) => [card.cid, card]));
+    const { entries: entries2, unknown: unknown2 } = fromIds(page.cids, byCid, "KONAMI ID");
+    return buildDeck(page.name, "\u5B98\u65B9\u5361\u7247\u6570\u636E\u5E93", entries2, unknown2);
+  }
+  if (/^(#main|#extra|!side)\s*$/m.test(text)) {
+    const { entries: entries2, unknown: unknown2 } = fromIds(parseYdk(text), byPasscode, "\u5361\u5BC6");
+    return buildDeck("", source || ".ydk", entries2, unknown2);
+  }
+  const { entries, unknown, guessed } = parseTextList(text, cards);
+  return buildDeck("", source || "\u6587\u5B57\u5361\u8868", entries, unknown, guessed);
+}
+function sameNameKey(card, cards) {
+  if (card.treatedAs) return norm(card.treatedAs);
+  const zh2 = card.descZh.match(/这个卡名在规则上当作「(.+?)」使用/);
+  const target = zh2 ? resolveName(cards, zh2[1]) : null;
+  return norm(target && "card" in target ? target.card.en : card.en || card.cn);
+}
+var LIMITS = { forbidden: 0, limited1: 1, limited2: 2 };
+function checkDeck(deck, cards, banlist) {
+  const issues = [];
+  const size = (section) => deck[section].reduce((sum, entry) => sum + entry.count, 0);
+  if (size("main") < 40 || size("main") > 60) issues.push(`\u4E3B\u5361\u7EC4 ${size("main")} \u5F20\uFF0C\u8981\u5728 40\uFF5E60 \u5F20\u4E4B\u95F4`);
+  if (size("extra") > 15) issues.push(`\u989D\u5916\u5361\u7EC4 ${size("extra")} \u5F20\uFF0C\u6700\u591A 15 \u5F20`);
+  if (size("side") > 15) issues.push(`\u526F\u5361\u7EC4 ${size("side")} \u5F20\uFF0C\u6700\u591A 15 \u5F20`);
+  const totals = /* @__PURE__ */ new Map();
+  for (const section of SECTIONS) {
+    for (const { card, count } of deck[section]) {
+      const total = totals.get(card.id) ?? { card, count: 0 };
+      total.count += count;
+      totals.set(card.id, total);
+    }
+  }
+  const groups = /* @__PURE__ */ new Map();
+  for (const total of totals.values()) {
+    const key = sameNameKey(total.card, cards);
+    groups.set(key, [...groups.get(key) ?? [], total]);
+  }
+  for (const group of groups.values()) {
+    const count = group.reduce((sum, item) => sum + item.count, 0);
+    if (count <= 3) continue;
+    const parts = group.map((item) => `${cardLabel(item.card)} ${item.count} \u5F20`).join("\u3001");
+    issues.push(group.length > 1 ? `\u540C\u540D\u5361\u8D85\u8FC7 3 \u5F20\uFF1A${parts}\uFF08\u89C4\u5219\u4E0A\u7B97\u540C\u4E00\u5F20\u5361\uFF09` : `${parts}\uFF0C\u540C\u540D\u5361\u6700\u591A 3 \u5F20`);
+  }
+  for (const { card, count } of totals.values()) {
+    const status = banlist ? banStatus(card, banlist.current) : "unlimited";
+    if (status in LIMITS && count > LIMITS[status]) {
+      issues.push(status === "forbidden" ? `${cardLabel(card)} \u5728 MD \u662F\u7981\u6B62\u5361\uFF0C\u5361\u7EC4\u91CC\u6709 ${count} \u5F20` : `${cardLabel(card)} \u5728 MD \u9650\u5236 ${LIMITS[status]} \u5F20\uFF0C\u5361\u7EC4\u91CC\u6709 ${count} \u5F20`);
+    }
+    if (!inMasterDuel(card)) {
+      issues.push(card.mdRarity ? `${cardLabel(card)} \u8FD8\u6CA1\u5728 MD \u5B9E\u88C5` : `${cardLabel(card)} MD \u91CC\u6CA1\u6709\u8FD9\u5F20\u5361`);
+    }
+  }
+  if (deck.guessed.length > 0) issues.push(`\u6309\u90E8\u5206\u5361\u540D\u8BA4\u7684\uFF0C\u8BF7\u786E\u8BA4\uFF1A${deck.guessed.join("\uFF1B")}`);
+  if (deck.unknown.length > 0) issues.push(`\u6CA1\u8BA4\u51FA\u6765\uFF1A${deck.unknown.join("\uFF1B")}`);
+  return issues;
 }
 
 // src/format.ts
@@ -1107,6 +1317,33 @@ function formatBanlist(cards, banlist, options) {
   }
   return lines.join("\n");
 }
+var SECTION_LABEL = { main: "\u4E3B\u5361\u7EC4", extra: "\u989D\u5916\u5361\u7EC4", side: "\u526F\u5361\u7EC4" };
+function formatDeck(deck, issues, banlist) {
+  const size = (section) => deck[section].reduce((sum, entry) => sum + entry.count, 0);
+  const byRarity = /* @__PURE__ */ new Map();
+  for (const section of SECTIONS) {
+    for (const { card, count } of deck[section]) {
+      const rarity = card.mdRarity || "MD \u91CC\u6CA1\u6709";
+      byRarity.set(rarity, (byRarity.get(rarity) ?? 0) + count);
+    }
+  }
+  const cost = ["UR", "SR", "R", "N", "MD \u91CC\u6CA1\u6709"].filter((rarity) => byRarity.has(rarity)).map((rarity) => `${rarity} ${byRarity.get(rarity)} \u5F20`).join("\uFF0C");
+  const lines = [
+    `\u5361\u7EC4\uFF1A${deck.name || "\uFF08\u6CA1\u6709\u540D\u5B57\uFF09"}\uFF08\u6765\u6E90\uFF1A${deck.source}\uFF09`,
+    SECTIONS.map((section) => `${SECTION_LABEL[section]} ${size(section)} \u5F20`).join("\uFF5C"),
+    `\u7A00\u6709\u5EA6\uFF08\u6309\u5F20\u6570\uFF09\uFF1A${cost || "\u65E0"}`
+  ];
+  for (const section of SECTIONS) {
+    if (deck[section].length === 0) continue;
+    lines.push("", `${SECTION_LABEL[section]}\uFF1A`);
+    for (const { card, count } of deck[section]) {
+      lines.push(`  ${count} ${namesLine(card)} | ${card.mdRarity || "-"} | ${banText(card, banlist)}`);
+    }
+  }
+  lines.push("", "\u68C0\u67E5\uFF1A", ...issues.length > 0 ? issues.map((issue) => `  - ${issue}`) : ["  \u6CA1\u6709\u53D1\u73B0\u5F20\u6570\u3001\u7981\u9650\u6216\u5B9E\u88C5\u65B9\u9762\u7684\u95EE\u9898\u3002"]);
+  lines.push(`\uFF08${banlistNote(banlist)}\uFF09`);
+  return lines.join("\n");
+}
 
 // src/service.ts
 async function lookup(queries) {
@@ -1120,6 +1357,19 @@ async function lookup(queries) {
 }
 async function search(filters) {
   return formatSearch(searchCards(await loadCards(), filters), await loadBanlist(), filters);
+}
+async function importDeck(input) {
+  const banlist = await loadBanlist();
+  let cards = await loadCards();
+  let deck = await readDeck(input, cards);
+  if (deck.unknown.length > 0) {
+    const fresh = await reloadIfSourcesChanged();
+    if (fresh) {
+      cards = fresh;
+      deck = await readDeck(input, cards);
+    }
+  }
+  return formatDeck(deck, checkDeck(deck, cards, banlist), banlist);
 }
 async function banlistText(options) {
   const banlist = await loadBanlist();
@@ -1144,6 +1394,8 @@ var USAGE = `Yu-Gi-Oh! Master Duel card lookup
       --name TEXT  --text TEXT (repeatable)  --kind KIND (repeatable)  --race TYPE  --attr ATTRIBUTE
       --level N|A-B  --link N|A-B  --atk N|A-B  --def N|A-B  --archetype NAME  --rarity UR|SR|R|N
       --all-formats  --full  --limit N
+  mdcard deck <deck>                       read and check a deck: a card database deck URL, a YDKE string,
+                                           a .ydk file, or a text list ("-" reads it from standard input)
   mdcard banlist [--status forbidden|limited1|limited2] [--upcoming]
   mdcard notes [--preference TEXT | --lesson TEXT]
   mdcard update                            re-download card data and the banlist now`;
@@ -1177,6 +1429,11 @@ async function main(argv) {
         }
       });
       console.log(await search({ ...values, allFormats: values["all-formats"], limit: Number(values.limit) }));
+      return 0;
+    }
+    case "deck": {
+      if (args.length === 0) break;
+      console.log(await importDeck(args[0] === "-" ? readFileSync4(0, "utf8") : args.join(" ")));
       return 0;
     }
     case "banlist": {

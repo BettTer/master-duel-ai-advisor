@@ -1,6 +1,6 @@
 ---
 name: master-duel-ai-advisor
-description: Yu-Gi-Oh! Master Duel deckbuilding advisor backed by verified card data. Looks up exact card text (Chinese, English and Japanese, plus the Chinese name shown in Master Duel), Master Duel rarity and the current Master Duel Forbidden & Limited list, and searches the whole card pool by kind, level, attribute, type and card text. Use it whenever the conversation involves Yu-Gi-Oh! / 游戏王 / 遊戯王 Master Duel cards or decks, including what a card does, whether it is Forbidden or Limited (禁限), how rare it is or whether to craft it (合成, UR, SR), which cards could fill a slot ("which Level 12 Synchros can I make", "有没有不取对象的除外"), reviewing a deck list, or weighing deckbuilding trade-offs (构筑, 取舍, 卡组), even when the user doesn't say "Master Duel" or ask for a lookup.
+description: Yu-Gi-Oh! Master Duel deckbuilding advisor backed by verified card data. Looks up exact card text (Chinese, English and Japanese, plus the Chinese name shown in Master Duel), Master Duel rarity and the current Master Duel Forbidden & Limited list, and searches the whole card pool by kind, level, attribute, type and card text, and reads and checks whole decks (a deck URL from the official card database, YDKE, .ydk or a card list). Use it whenever the conversation involves Yu-Gi-Oh! / 游戏王 / 遊戯王 Master Duel cards or decks, including what a card does, whether it is Forbidden or Limited (禁限), how rare it is or whether to craft it (合成, UR, SR), which cards could fill a slot ("which Level 12 Synchros can I make", "有没有不取对象的除外"), reviewing a deck list, or weighing deckbuilding trade-offs (构筑, 取舍, 卡组), even when the user doesn't say "Master Duel" or ask for a lookup.
 ---
 
 # Master Duel AI Advisor
@@ -17,6 +17,8 @@ node scripts/mdcard.mjs card 53971455 79415624 "Junk Meister"   # several cards 
 node scripts/mdcard.mjs search --kind 同调 --level 12 --text "调整＋调整以外的怪兽1只以上"
 node scripts/mdcard.mjs search --kind 调整 --level 4 --attr 光 --race 魔法师
 node scripts/mdcard.mjs search --kind 速攻 --text "「阿不思的落胤」"
+node scripts/mdcard.mjs deck "https://www.db.yugioh-card.com/yugiohdb/member_deck.action?ope=1&cgid=…&dno=…"
+node scripts/mdcard.mjs deck "ydke://…"             # also a .ydk file path, or "-" to read a card list from standard input
 node scripts/mdcard.mjs banlist --status limited1
 node scripts/mdcard.mjs banlist --upcoming        # an announced list that is not in effect yet
 node scripts/mdcard.mjs notes                     # the user's preferences and lessons (see below)
@@ -42,6 +44,14 @@ Extra Deck monsters in search results show their material line, but not their ef
 
 Material and condition wording is more uniform in the Chinese text (for example 调整＋调整以外的怪兽1只以上), so prefer Chinese phrases for pattern searches. A phrase filter can still drop cards worded differently, so when completeness matters, run the search once without `--text` and skim what the phrase excluded.
 
+`deck` reads a whole deck and checks it: every card with rarity and banlist status, the deck's rarity totals, and problems with deck size, copies (cards that 规则上当作 another card count together), the Master Duel banlist and cards not in Master Duel. It accepts:
+
+- the URL of a deck page on the official card database (db.yugioh-card.com). Master Duel decks get there through the game's link with the card database. The deck has to be public; a private deck can't be read without logging in, and the script says so. Decks are private by default. To make one public, the user opens it for editing, taps the tag icon next to the deck name, chooses a deck type, turns the public setting on and saves;
+- a YDKE string or a `.ydk` file;
+- a card list, one card per line with an optional count (`3 灰流丽`, `Ash Blossom x3`, `灰流うらら ×3`), in Chinese, English or Japanese, with optional section headers such as 额外卡组 or Side Deck.
+
+A name that only partially matches one card is accepted but listed under "按部分卡名认的，请确认"; a name that matches several cards is listed with candidates. Fix those with full names before relying on the result.
+
 ## The user's notes
 
 Run `node scripts/mdcard.mjs notes` at the start of a Master Duel conversation. It prints the user's personal notes file (`~/.config/master-duel-ai-advisor/notes.md`, or `$MDAA_CONFIG_DIR/notes.md`), which skill updates never touch. Follow the preferences in it. They change how you answer and what you recommend, for example "mostly plays going second" or "has no UR points", but they never relax the data rules below.
@@ -58,6 +68,8 @@ Keep each entry to one specific sentence. Do not save one-off details of the cur
 Some lessons apply to every player: card data that is wrong, a rule in this skill that is stated badly, a search that keeps missing cards. When you notice one, offer to draft a GitHub issue for https://github.com/BettTer/master-duel-ai-advisor/issues/new with the lesson and a short example, leaving out personal details. The user decides whether to post it.
 
 ## Working rules
+
+**Read the deck before judging it.** When the user shares a deck, run `deck` first and mention the problems it reports. If they describe a deck in shorthand, write it out with full card names and run `deck` on that list.
 
 **Look up before you quote.** Run `card` for every card your advice depends on, and quote the sentence that matters. Small paraphrase errors flip conclusions. For example, Branded Fusion's restriction applies to the whole turn you activate it (这张卡发动的回合), so you cannot Synchro Summon first and activate it afterwards, which is exactly what a from-memory answer once claimed.
 
