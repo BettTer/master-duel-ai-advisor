@@ -157,7 +157,15 @@ export interface Board {
   sets: Card[]; // spells and traps in their zones
   counted: { card: Card; level: number; uses: number; place: "场上" | "墓地" | "手里" | "带出"; value: number; ownTurn: boolean; via?: Card }[];
   steps: string[];
+  path: number[]; // our choices, to replay the route
+  draws: number; // cards the opponent drew from Maxx "C"
 }
+
+/** The opponent holds this card and activates it at its n-th opportunity along our route, picking the n-th target. */
+export interface OpponentPlay { code: number; at: number; target: number }
+/** The cost of each card the opponent draws from Maxx "C", in the same units as the levels: about a hand trap. */
+export const DRAW_PENALTY = 4;
+export const HAND_TRAPS = { 灰流丽: 14558127, 无限泡影: 10045474, 增殖的G: 23434538 };
 
 /** More value first; on a tie, the shorter route. */
 export function boardOrder(a: Board, b: Board): number {
@@ -171,9 +179,19 @@ export interface Branch {
   best: Board | null;
 }
 
+/** The worst the opponent can do to our best route with one card, and our best board after it. */
+export interface Interruption {
+  card: Card;
+  opportunities: number; // chances they had to use it along the route
+  after: string; // the step of ours it answered
+  board: Board | null; // our best fallback; null if nothing could be done at all
+  complete: boolean;
+}
+
 export interface PlanResult {
   boards: Board[]; // the best board for each distinct field, best first
   branches: Branch[];
+  interruptions: Interruption[];
   states: number;
   seconds: number;
 }
@@ -201,8 +219,9 @@ function combinations(items: any[], size: number): number[][] {
   return result;
 }
 
-export interface Setup { hand: number[]; main: number[]; extra: number[] }
-interface Explored { nodes: number; complete: boolean; boards: Board[] }
+export interface Setup { hand: number[]; main: number[]; extra: number[]; opponentHand?: number[] }
+interface Explored { nodes: number; complete: boolean; boards: Board[]; targets?: number }
+export interface Opportunity { at: number; prefix: number; after: string }
 
 /**
  * A search over one duel: walk to a node given by the choices that lead to it, then try every line from there and
@@ -250,11 +269,56 @@ function createSearcher(
     return (handCounts.get(item.code) ?? 0) <= drawn.get(item.code)!;
   };
 
-  const optionsFor = (message: any, idleActives: Set<string>): Option[] => {
-    if (message.player === 1) {
-      if (message.type === OcgMessageType.SELECT_CHAIN) return [{ label: "", response: { type: T.SELECT_CHAIN, index: null } }];
-      throw new Error(`对手要做选择（${message.type}），这种情况还没处理`);
+  // The opponent's play: null means they do nothing; `recording` lists their chances to use that card instead.
+  let opponent: OpponentPlay | null = null;
+  let recording: { code: number; found: Opportunity[] } | null = null;
+  let current: Line | null = null; // the line being advanced, for counting the opponent's opportunities
+  let lastTargets = 0;
+  const opponentChoice = (message: any): Option => {
+    const pass = { label: "", response: { type: T.SELECT_CHAIN, index: null } };
+    if (message.type === OcgMessageType.SELECT_CHAIN) {
+      const want = opponent?.code ?? recording?.code;
+      const index = want === undefined ? -1 : message.selects.findIndex((item: any) => item.code === want);
+      if (index < 0 || !current) return pass;
+      const line = current;
+      if (recording) {
+        recording.found.push({ at: line.opportunities, prefix: line.path.length, after: line.steps[line.steps.length - 1] ?? "" });
+        line.opportunities++;
+        return pass;
+      }
+      if (opponent && line.opportunities++ === opponent.at && !line.interrupted) {
+        line.interrupted = `（对手发动「${name(want!)}」）`;
+        line.steps.push(line.interrupted);
+        return { label: "", response: { type: T.SELECT_CHAIN, index } };
+      }
+      return pass;
     }
+    if (message.type === OcgMessageType.SELECT_CARD) {
+      // A target: the opponent's choice is part of their play; the caller enumerates them.
+      const distinct: number[] = [];
+      const seen = new Set<string>();
+      message.selects.forEach((item: any, index: number) => { if (!seen.has(zoneKey(item))) { seen.add(zoneKey(item)); distinct.push(index); } });
+      lastTargets = distinct.length;
+      const index = distinct[Math.min(opponent?.target ?? 0, distinct.length - 1)];
+      if (current) current.steps[current.steps.length - 1] = `（对手对「${name(message.selects[index].code)}」发动「${name(opponent?.code ?? 0)}」）`;
+      return { label: "", response: { type: T.SELECT_CARD, indicies: [index] } };
+    }
+    if (message.type === OcgMessageType.SELECT_EFFECTYN) return { label: "", response: { type: T.SELECT_EFFECTYN, yes: true } };
+    if (message.type === OcgMessageType.SELECT_YESNO) return { label: "", response: { type: T.SELECT_YESNO, yes: true } };
+    if (message.type === OcgMessageType.SELECT_OPTION) return { label: "", response: { type: T.SELECT_OPTION, index: 0 } };
+    if (message.type === OcgMessageType.SELECT_PLACE) {
+      // A set bit means the zone is not available; the low 16 bits are the choosing player's own field.
+      let place = null;
+      for (let sequence = 0; sequence < 5 && !place; sequence++) if (!(message.field_mask & (1 << (sequence + 8)))) place = { player: 1, location: OcgLocation.SZONE, sequence };
+      for (let sequence = 0; sequence < 5 && !place; sequence++) if (!(message.field_mask & (1 << (sequence + 24)))) place = { player: 0, location: OcgLocation.SZONE, sequence };
+      if (!place) throw new Error(`对手找不到可以放卡的区域（掩码 ${message.field_mask.toString(16)}）`);
+      return { label: "", response: { type: T.SELECT_PLACE, places: [place] } };
+    }
+    throw new Error(`对手要做选择（${message.type}），这种情况还没处理`);
+  };
+
+  const optionsFor = (message: any, idleActives: Set<string>): Option[] => {
+    if (message.player === 1) return [opponentChoice(message)];
     switch (message.type) {
       case OcgMessageType.SELECT_IDLECMD: {
         const options: Option[] = [];
@@ -331,6 +395,10 @@ function createSearcher(
         let place = null;
         for (let sequence = 0; sequence < 7 && !place; sequence++) if (!(mask & (1 << sequence))) place = { player: 0, location: OcgLocation.MZONE, sequence };
         for (let sequence = 0; sequence < 5 && !place; sequence++) if (!(mask & (1 << (sequence + 8)))) place = { player: 0, location: OcgLocation.SZONE, sequence };
+        // The high 16 bits are the opponent's field, for cards placed there (a monster used as their continuous spell).
+        for (let sequence = 0; sequence < 7 && !place; sequence++) if (!(mask & (1 << (sequence + 16)))) place = { player: 1, location: OcgLocation.MZONE, sequence };
+        for (let sequence = 0; sequence < 5 && !place; sequence++) if (!(mask & (1 << (sequence + 24)))) place = { player: 1, location: OcgLocation.SZONE, sequence };
+        if (!place) throw new Error(`找不到可以放卡的区域（${message.type === OcgMessageType.SELECT_PLACE ? "放置" : "选区"}，掩码 ${(mask >>> 0).toString(16)}，玩家 ${message.player}）`);
         const type = message.type === OcgMessageType.SELECT_PLACE ? T.SELECT_PLACE : T.SELECT_DISFIELD;
         return [{ label: "", response: { type, places: [place] } }];
       }
@@ -358,7 +426,7 @@ function createSearcher(
     throw new Error(`规则引擎要一种还没处理的选择（${message.type}）`);
   };
 
-  const duel = engine.newDuel(setup.hand, setup.main, setup.extra);
+  const duel = engine.newDuel(setup.hand, setup.main, setup.extra, setup.opponentHand ?? []);
 
   /** What the search remembers about the line so far, besides the engine's own state. */
   interface Line {
@@ -368,16 +436,23 @@ function createSearcher(
     idleActives: Set<string>;
     drawn: Map<number, number>;
     floor: string;
+    path: number[]; // our choices so far
+    opportunities: number; // chances the opponent has had to use their card
+    interrupted: string | null;
+    draws: number; // cards the opponent drew from Maxx "C"
   }
-  const copyLine = (line: Line): Line => ({ ...line, steps: [...line.steps], activations: [...line.activations], drawn: new Map(line.drawn) });
+  const copyLine = (line: Line): Line => ({ ...line, steps: [...line.steps], activations: [...line.activations], drawn: new Map(line.drawn), path: [...line.path] });
 
   /** Run until a decision worth branching on, answering the others; null when our turn is over. */
   const toDecision = (line: Line): { message: any; options: Option[] } | null => {
+    current = line;
     while (true) {
       const message: any = engine.advance(duel, (event: any) => {
         if (event.type === OcgMessageType.CHAINING && event.controller === 0) line.activations.push(`${event.code}:${event.description}`);
         if (event.type === OcgMessageType.SUMMONING) line.normalSummoned = true;
         if (event.type === OcgMessageType.DRAW && event.player === 0) for (const card of event.drawn) line.drawn.set(card.code, (line.drawn.get(card.code) ?? 0) + 1);
+        // Only draws after the opponent's play count: their opening hand is not Maxx "C".
+        if (event.type === OcgMessageType.DRAW && event.player === 1 && line.interrupted) line.draws += event.drawn.length;
       });
       handCounts = null;
       drawn = line.drawn;
@@ -397,7 +472,8 @@ function createSearcher(
     }
   };
 
-  const choose = (line: Line, message: any, option: Option) => {
+  const choose = (line: Line, message: any, option: Option, index: number) => {
+    line.path.push(index);
     if (option.label) line.steps.push(option.label);
     if (message.type === OcgMessageType.SELECT_UNSELECT_CARD && option.response.index !== null) line.floor = zoneKey(message.select_cards[option.response.index]);
     engine.respond(duel, option.response);
@@ -428,7 +504,8 @@ function createSearcher(
   };
 
   /** Set the spells and traps the tiers value, end the turn, and score what the opponent faces. */
-  const evaluate = (idle: any, steps: string[]): Board => {
+  const evaluate = (idle: any, line: Line): Board => {
+    const steps = line.steps;
     let message = idle;
     for (let guard = 0; guard < 10 && message; guard++) {
       handCounts = null;
@@ -517,8 +594,8 @@ function createSearcher(
     consider(onBoard, "场上", ["field", "any", "fieldOrHand"]);
     consider(grave, "墓地", ["grave", "any"]);
     consider(notDrawn, "手里", ["hand", "fieldOrHand"]);
-    const value = counted.reduce((sum, item) => sum + item.value, 0);
-    return { value, field, sets, counted, steps };
+    const value = counted.reduce((sum, item) => sum + item.value, 0) - line.draws * DRAW_PENALTY;
+    return { value, field, sets, counted, steps, path: [...line.path], draws: line.draws };
   };
 
   const local = new Set<string>();
@@ -549,7 +626,8 @@ function createSearcher(
     nodes++;
     const state = [OcgLocation.MZONE, OcgLocation.SZONE, OcgLocation.HAND, OcgLocation.GRAVE, OcgLocation.REMOVED, OcgLocation.EXTRA]
       .map((location) => engine.cards(duel, location).map((info) => `${info.code}${info.position & OcgPosition.FACEUP ? "u" : "d"}`).sort().join(","))
-      .join("|") + `|${[...line.activations].sort().join(",")}|${line.normalSummoned}|${message.type}|${options.map((option) => option.label).join(";")}|${line.floor}`;
+      .join("|") + `|${[...line.activations].sort().join(",")}|${line.normalSummoned}|${message.type}|${options.map((option) => option.label).join(";")}|${line.floor}`
+      + (opponent ? `|${opponent.code}:${opponent.at}:${opponent.target}:${line.interrupted ? 1 : 0}:${line.draws}` : "");
     if (alreadySeen(state)) return;
     states++;
     const isIdle = message.type === OcgMessageType.SELECT_IDLECMD;
@@ -564,12 +642,12 @@ function createSearcher(
     }
     if (isIdle) {
       drawn = line.drawn;
-      record(evaluate(message, line.steps));
+      record(evaluate(message, line));
     }
     for (let index = 0; index < options.length && nodes < budget && !interrupted; index++) {
       if (index > 0 || isIdle) back(); // the first choice continues from here, unless scoring moved the engine on
       const child = copyLine(line);
-      choose(child, message, options[index]);
+      choose(child, message, options[index], index);
       const next = toDecision(child);
       if (!next) continue;
       const parentBack = back;
@@ -578,7 +656,7 @@ function createSearcher(
       const childRestore = () => {
         parentBack();
         const replayed = copyLine(line);
-        choose(replayed, message, option);
+        choose(replayed, message, option, index);
         toDecision(replayed);
       };
       visit(child, next.message, next.options, childRestore);
@@ -587,15 +665,17 @@ function createSearcher(
   };
 
   const start = engine.save();
-  const newLine = (): Line => ({ steps: [], activations: [], normalSummoned: false, idleActives: new Set(), drawn: new Map(), floor: "" });
+  const newLine = (): Line => ({
+    steps: [], activations: [], normalSummoned: false, idleActives: new Set(), drawn: new Map(), floor: "", path: [], opportunities: 0, interrupted: null, draws: 0,
+  });
   /** Put the engine at the node the choices lead to, from the start of the turn. */
   const navigate = (path: number[]) => {
     engine.load(start);
     const line = newLine();
     let decision = toDecision(line);
     for (const index of path) {
-      if (!decision) return null;
-      choose(line, decision.message, decision.options[index]);
+      if (!decision || index >= decision.options.length) return null;
+      choose(line, decision.message, decision.options[index], index);
       decision = toDecision(line);
     }
     return decision ? { line, ...decision } : null;
@@ -611,9 +691,27 @@ function createSearcher(
       let board: Board | null = null;
       if (node.message.type === OcgMessageType.SELECT_IDLECMD) {
         drawn = node.line.drawn;
-        board = evaluate(node.message, node.line.steps);
+        board = evaluate(node.message, node.line);
       }
       return { count: node.options.length, board };
+    },
+    /** The opponent's chances to use a card along our route (our choices), in order. */
+    opportunities(path: number[], code: number): Opportunity[] {
+      recording = { code, found: [] };
+      opponent = null;
+      navigate(path);
+      const found = recording.found;
+      recording = null;
+      return found;
+    },
+    /** Search our best continuation after the opponent's play, from the route prefix where it happens. */
+    exploreInterrupted(prefix: number[], play: OpponentPlay, limit: number): Explored {
+      opponent = play;
+      lastTargets = 0;
+      const explored = this.explore(prefix, limit);
+      const targets = lastTargets;
+      opponent = null;
+      return { ...explored, targets };
     },
     /** Search below a node with a budget of nodes; the boards found, best first. */
     explore(path: number[], limit: number): Explored {
@@ -622,6 +720,7 @@ function createSearcher(
       interrupted = false;
       found = new Map();
       const node = navigate(path);
+      // After the opponent's play the node itself may be a main phase decision worth scoring, even with no options.
       if (node) visit(node.line, node.message, node.options, () => { navigate(path); });
       return { nodes, complete: nodes < limit && !interrupted, boards: [...found.values()].sort(boardOrder).slice(0, 30) };
     },
@@ -651,7 +750,7 @@ function summarize(
       best: boards[0] ?? null,
     };
   });
-  return { boards: [...best.values()].sort(boardOrder), branches, states, seconds };
+  return { boards: [...best.values()].sort(boardOrder), branches, interruptions: [], states, seconds };
 }
 
 /** Plan in this thread, every first action with an equal share of the budget. For tests and profiling. */
@@ -682,17 +781,24 @@ async function runWorker({ setup, cards, lines, saveLimit, shared, seen }: Worke
   const engine = await startEngine(await loadEngineData(Infinity));
   const stopped = () => Atomics.add(counters, 0, 1) >= 0 && Atomics.load(counters, 1) === 1;
   const searcher = createSearcher(engine, setup, (code) => byCode.get(code), lines, saveLimit, stopped, sharedSeen(new BigInt64Array(seen)));
-  parentPort!.on("message", (task: { id: number; path: number[] }) => {
-    parentPort!.postMessage({ id: task.id, explored: searcher.explore(task.path, Infinity), states: searcher.states() });
+  parentPort!.on("message", (task: Task) => {
+    const limit = task.limit ?? Infinity;
+    const explored = task.play ? searcher.exploreInterrupted(task.path, task.play, limit) : searcher.explore(task.path, limit);
+    parentPort!.postMessage({ id: task.id, explored, states: searcher.states() });
   });
   parentPort!.postMessage({ ready: true });
 }
 
+interface Task { id: number; path: number[]; play?: OpponentPlay; limit?: number }
+/** Nodes per interruption task: enough for a fallback, small enough that every chance gets its turn. */
+const INTERRUPTION_NODES = 3000;
+
 /**
  * Plan on several threads. The first few levels of the search tree are expanded here into tasks; each worker runs
  * its own engine and takes tasks until none are left or the shared budget of nodes or seconds runs out. Tasks from
- * different first actions take turns, so every first action gets searched. Workers do not share what they have
- * seen, so a little work is repeated, but the search finishes several times faster.
+ * different first actions take turns, so every first action gets searched. Then, for each hand trap the opponent
+ * might hold, every chance to use it along the best route is tried, and the one that leaves us the worst best
+ * board is reported with our fallback.
  */
 export async function planParallel(
   engine: Engine, setup: Setup, cardOf: (code: number) => Card | undefined, cards: [number, Card][], lines: ResolvedLine[],
@@ -723,44 +829,104 @@ export async function planParallel(
   }
   const taskCounts = byFirst.map((group) => group.length);
   const taskFirst = queue.map((task) => task.first);
-  const results: { first: number; explored: Explored }[] = [];
-  let states = 0;
+
   const shared = new SharedArrayBuffer(8);
   const counters = new Int32Array(shared);
-  const deadline = started + limits.seconds * 1000;
-  const watch = setInterval(() => {
-    if (Atomics.load(counters, 0) >= limits.nodes || performance.now() >= deadline) Atomics.store(counters, 1, 1);
-  }, 50);
   // Saves cost 16 MB each: keep the threads together under about 2 GB.
   const workerSetup: WorkerSetup = {
     role: "plan-worker", setup, cards, lines, saveLimit: Math.max(8, Math.floor(128 / threads)), shared,
     seen: new SharedArrayBuffer(SEEN_SLOTS * 8),
   };
-  try {
-    await Promise.all(Array.from({ length: Math.min(threads, queue.length) }, () => new Promise<void>((resolve, reject) => {
-      const worker = new Worker(new URL(import.meta.url), { workerData: workerSetup });
-      let workerStates = 0; // positions this worker has searched so far
-      const next = () => {
-        const task = Atomics.load(counters, 1) === 1 ? undefined : queue.shift();
-        if (task) worker.postMessage(task);
-        else {
-          states += workerStates;
-          void worker.terminate().then(() => resolve());
-        }
-      };
+  const workers = Array.from({ length: Math.min(threads, Math.max(queue.length, 1)) }, () => new Worker(new URL(import.meta.url), { workerData: workerSetup }));
+  const ready = new Set<Worker>(); // workers announce themselves once, when their engine is up
+  const workerStates = new Map<Worker, number>(); // each worker's running total of positions searched
+  const states = () => [...workerStates.values()].reduce((sum, count) => sum + count, 0);
+  /** Run tasks on the pool until done or the budget runs out; results arrive in any order. */
+  const run = (tasks: Task[], seconds: number): Promise<Map<number, Explored>> => new Promise((resolve, reject) => {
+    const pending = [...tasks];
+    const results = new Map<number, Explored>();
+    Atomics.store(counters, 0, 0);
+    Atomics.store(counters, 1, 0);
+    const deadline = performance.now() + seconds * 1000;
+    const watch = setInterval(() => {
+      if (Atomics.load(counters, 0) >= limits.nodes || performance.now() >= deadline) Atomics.store(counters, 1, 1);
+    }, 50);
+    let busy = 0;
+    const finish = () => { clearInterval(watch); resolve(results); };
+    const feed = (worker: Worker) => {
+      const task = Atomics.load(counters, 1) === 1 ? undefined : pending.shift();
+      if (task) { busy++; worker.postMessage(task); }
+      else if (busy === 0) finish();
+    };
+    for (const worker of workers) {
+      worker.removeAllListeners("message");
+      worker.removeAllListeners("error");
       worker.on("message", (message: any) => {
-        if (!message.ready) {
-          results.push({ first: taskFirst[message.id], explored: message.explored });
-          workerStates = message.states;
-        }
-        next();
+        if (message.ready) { ready.add(worker); feed(worker); return; }
+        results.set(message.id, message.explored);
+        workerStates.set(worker, message.states);
+        busy--;
+        feed(worker);
       });
-      worker.on("error", reject);
-    })));
+      worker.on("error", (error) => { clearInterval(watch); reject(error); });
+      if (ready.has(worker)) feed(worker);
+    }
+  });
+  try {
+    // Workers announce themselves when their engine is up; the first phase starts from those announcements and
+    // later phases feed the workers directly.
+    const phase1 = await run(queue.map((task) => ({ id: task.id, path: task.path })), limits.seconds);
+    const results = [...phase1].map(([id, explored]) => ({ first: taskFirst[id], explored }));
+    const result = summarize(firsts, results, taskCounts, extraBoards, states(), (performance.now() - started) / 1000);
+    const best = result.boards[0];
+    if (best && best.path.length > 0 && setup.opponentHand?.length) {
+      // Phase 2: each hand trap at each of its chances; Infinite Impermanence also at each of its targets.
+      const chances = setup.opponentHand.map((code) => ({ code, found: searcher.opportunities(best.path, code) }));
+      const ids = new Map<number, { code: number; chance: Opportunity; target: number }>();
+      let tasks: Task[] = [];
+      for (const { code, found } of chances) {
+        for (const chance of found) {
+          const id = ids.size;
+          ids.set(id, { code, chance, target: 0 });
+          tasks.push({ id, path: best.path.slice(0, chance.prefix), play: { code, at: chance.at, target: 0 }, limit: INTERRUPTION_NODES });
+        }
+      }
+      // Interruptions get up to half the main search's time in all, shared between the two rounds.
+      const phaseDeadline = performance.now() + (limits.seconds / 2) * 1000;
+      const remaining = () => Math.max(1, (phaseDeadline - performance.now()) / 1000);
+      const phase2 = await run(tasks, remaining());
+      // More targets found for a play: try the others too.
+      tasks = [];
+      for (const [id, explored] of phase2) {
+        const info = ids.get(id)!;
+        for (let target = 1; target < (explored.targets ?? 0); target++) {
+          const newId = ids.size;
+          ids.set(newId, { ...info, target });
+          tasks.push({ id: newId, path: best.path.slice(0, info.chance.prefix), play: { code: info.code, at: info.chance.at, target }, limit: INTERRUPTION_NODES });
+        }
+      }
+      const phase3 = tasks.length > 0 ? await run(tasks, remaining()) : new Map<number, Explored>();
+      const all = new Map([...phase2, ...phase3]);
+      for (const { code, found } of chances) {
+        const card = cardOf(code);
+        if (!card) continue;
+        let worst: Interruption | null = null;
+        for (const [id, explored] of all) {
+          const info = ids.get(id)!;
+          if (info.code !== code || (explored.nodes === 0 && !explored.complete)) continue; // never got a turn
+          const board = explored.boards[0] ?? null;
+          const value = board?.value ?? -Infinity;
+          if (!worst || value < (worst.board?.value ?? -Infinity)) worst = { card, opportunities: found.length, after: info.chance.after, board, complete: explored.complete };
+        }
+        result.interruptions.push(worst ?? { card, opportunities: 0, after: "", board: null, complete: true });
+      }
+      result.seconds = (performance.now() - started) / 1000;
+      result.states = states();
+    }
+    return result;
   } finally {
-    clearInterval(watch);
+    await Promise.all(workers.map((worker) => worker.terminate()));
   }
-  return summarize(firsts, results, taskCounts, extraBoards, states, (performance.now() - started) / 1000);
 }
 
 /** Plan the best board for an opening hand, going first. The entry point for the command line and MCP. */
@@ -790,7 +956,10 @@ export async function planText(input: string, handText: string, tiersText: strin
   const byCode = new Map<number, Card>();
   for (const card of [...cards, ...deckCards]) for (const id of [code(card), card.id, ...card.altIds]) byCode.set(id, card);
   const engine = await startEngine(data);
-  const setup = { hand: hand.map(code), main: pile.map(code), extra: deck.extra.flatMap((entry) => Array<number>(entry.count).fill(code(entry.card))) };
+  const setup: Setup = {
+    hand: hand.map(code), main: pile.map(code), extra: deck.extra.flatMap((entry) => Array<number>(entry.count).fill(code(entry.card))),
+    opponentHand: Object.values(HAND_TRAPS),
+  };
   const lines = resolveTiers(tiers, deckCards, archetypesOf(cards));
   const result = await planParallel(engine, setup, (id) => byCode.get(id), [...byCode], lines, limits);
   // Card scripts that are missing show up as missing cards; Normal Monsters simply have none.

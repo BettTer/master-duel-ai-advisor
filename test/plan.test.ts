@@ -42,7 +42,7 @@ test("parseTiers reads one level per card, uses, places and conditions", () => {
 });
 
 test("boards compare by value, then by the shorter route", () => {
-  const board = (value: number, steps: number): Board => ({ value, field: [], sets: [], counted: [], steps: Array(steps).fill("") });
+  const board = (value: number, steps: number): Board => ({ value, field: [], sets: [], counted: [], steps: Array(steps).fill(""), path: [], draws: 0 });
   assert.ok(boardOrder(board(19, 9), board(18, 2)) < 0);
   assert.ok(boardOrder(board(19, 3), board(19, 6)) < 0);
   // The user's judgments: Baronne beats two second-level negations but not three (Clear Wing's two and an Ash Blossom

@@ -1524,7 +1524,7 @@ async function startEngine(data) {
     return card ? { ...card, race: BigInt(card.race) } : null;
   };
   return {
-    newDuel(hand, main, extra) {
+    newDuel(hand, main, extra, opponentHand = []) {
       const duel = lib.createDuel({
         flags: S.MODE_MR5,
         seed: [1n, 2n, 3n, 4n],
@@ -1541,6 +1541,7 @@ async function startEngine(data) {
       hand.forEach((code) => add(0, code, L.HAND));
       main.forEach((code) => add(0, code, L.DECK));
       extra.forEach((code) => add(0, code, L.EXTRA));
+      opponentHand.forEach((code) => add(1, code, L.HAND));
       for (let i2 = 0; i2 < 40; i2++) add(1, OPPONENT_CARD, L.DECK);
       lib.startDuel(duel);
       return duel;
@@ -2662,6 +2663,23 @@ function formatPlan(hand, result, problems, missing, missingScripts) {
       lines.push("", "\u5176\u4ED6\u7684\u573A\uFF08\u6BCF\u79CD\u573A\u53EA\u5217\u6700\u597D\u7684\u4E00\u6761\u8DEF\u7EBF\uFF09\uFF1A", ...alternatives.map((board) => `  [${board.value}] ${fieldText(board)}`));
     }
   }
+  if (result.interruptions.length > 0) {
+    lines.push("", "\u88AB\u6253\u65AD\u7684\u60C5\u51B5\uFF08\u5BF9\u624B\u62FF\u7740\u8FD9\u5F20\u5361\uFF0C\u5728\u6700\u5927\u573A\u90A3\u6761\u8DEF\u7EBF\u4E0A\u6311\u5BF9\u6211\u4EEC\u6700\u72E0\u7684\u65F6\u673A\u7528\uFF09\uFF1A");
+    for (const { card, opportunities, after, board, complete } of result.interruptions) {
+      const name = `\u300C${card.cn || card.en}\u300D`;
+      if (opportunities === 0) {
+        lines.push(`  ${name}\uFF1A\u8FD9\u6761\u8DEF\u7EBF\u4E0A\u6CA1\u6709\u53D1\u52A8\u7684\u65F6\u673A`);
+        continue;
+      }
+      if (!board) {
+        lines.push(`  ${name}\uFF1A\u5728\u300C${after}\u300D\u540E\u53D1\u52A8\uFF0C\u4E4B\u540E\u505A\u4E0D\u51FA\u4EFB\u4F55\u573A`);
+        continue;
+      }
+      const draws = board.draws > 0 ? `\uFF0C\u5BF9\u624B\u62BD\u4E86 ${board.draws} \u5F20\uFF08\u6BCF\u5F20\u6263 ${DRAW_PENALTY}\uFF09` : "";
+      lines.push(`  ${name}\uFF08${opportunities} \u4E2A\u65F6\u673A\uFF09\uFF1A\u5728\u300C${after}\u300D\u540E\u53D1\u52A8${draws} \u2192 \u59A5\u534F\u573A ${fieldText(board)}\uFF0C\u4EF7\u503C ${board.value}${complete ? "" : "\uFF08\u6CA1\u641C\u5B8C\uFF09"}`);
+      lines.push(...routeLines(board.steps).map((line) => `  ${line}`));
+    }
+  }
   lines.push("", "\u7B2C\u4E00\u6B65\u7684\u6BCF\u79CD\u9009\u62E9\uFF1A");
   for (const branch of result.branches) {
     const how = branch.complete ? `\u5168\u90E8\u641C\u5B8C\uFF08${branch.nodes} \u4E2A\u8282\u70B9\uFF09` : `\u641C\u4E86 ${branch.nodes} \u4E2A\u8282\u70B9\uFF0C\u5230\u65F6\u95F4\u6216\u8282\u70B9\u4E0A\u9650\u6CA1\u641C\u5B8C`;
@@ -3087,6 +3105,8 @@ function resolveTiers(tiers, deckCards, inArchetype) {
     reach: reach && { zone: reach.zone, ids: ids(reach.group), count: reach.count }
   }));
 }
+var DRAW_PENALTY = 4;
+var HAND_TRAPS = { \u7070\u6D41\u4E3D: 14558127, \u65E0\u9650\u6CE1\u5F71: 10045474, \u589E\u6B96\u7684G: 23434538 };
 function boardOrder(a, b3) {
   return b3.value - a.value || a.steps.length - b3.steps.length;
 }
@@ -3146,11 +3166,57 @@ function createSearcher(engine, setup, cardOf, lines, saveLimit, stopped = () =>
     handCounts ??= engine.cards(duel, L.HAND).reduce((counts, info) => counts.set(info.code, (counts.get(info.code) ?? 0) + 1), /* @__PURE__ */ new Map());
     return (handCounts.get(item.code) ?? 0) <= drawn.get(item.code);
   };
-  const optionsFor = (message, idleActives) => {
-    if (message.player === 1) {
-      if (message.type === z.SELECT_CHAIN) return [{ label: "", response: { type: T.SELECT_CHAIN, index: null } }];
-      throw new Error(`\u5BF9\u624B\u8981\u505A\u9009\u62E9\uFF08${message.type}\uFF09\uFF0C\u8FD9\u79CD\u60C5\u51B5\u8FD8\u6CA1\u5904\u7406`);
+  let opponent = null;
+  let recording = null;
+  let current = null;
+  let lastTargets = 0;
+  const opponentChoice = (message) => {
+    const pass = { label: "", response: { type: T.SELECT_CHAIN, index: null } };
+    if (message.type === z.SELECT_CHAIN) {
+      const want = opponent?.code ?? recording?.code;
+      const index = want === void 0 ? -1 : message.selects.findIndex((item) => item.code === want);
+      if (index < 0 || !current) return pass;
+      const line = current;
+      if (recording) {
+        recording.found.push({ at: line.opportunities, prefix: line.path.length, after: line.steps[line.steps.length - 1] ?? "" });
+        line.opportunities++;
+        return pass;
+      }
+      if (opponent && line.opportunities++ === opponent.at && !line.interrupted) {
+        line.interrupted = `\uFF08\u5BF9\u624B\u53D1\u52A8\u300C${name(want)}\u300D\uFF09`;
+        line.steps.push(line.interrupted);
+        return { label: "", response: { type: T.SELECT_CHAIN, index } };
+      }
+      return pass;
     }
+    if (message.type === z.SELECT_CARD) {
+      const distinct = [];
+      const seen = /* @__PURE__ */ new Set();
+      message.selects.forEach((item, index2) => {
+        if (!seen.has(zoneKey(item))) {
+          seen.add(zoneKey(item));
+          distinct.push(index2);
+        }
+      });
+      lastTargets = distinct.length;
+      const index = distinct[Math.min(opponent?.target ?? 0, distinct.length - 1)];
+      if (current) current.steps[current.steps.length - 1] = `\uFF08\u5BF9\u624B\u5BF9\u300C${name(message.selects[index].code)}\u300D\u53D1\u52A8\u300C${name(opponent?.code ?? 0)}\u300D\uFF09`;
+      return { label: "", response: { type: T.SELECT_CARD, indicies: [index] } };
+    }
+    if (message.type === z.SELECT_EFFECTYN) return { label: "", response: { type: T.SELECT_EFFECTYN, yes: true } };
+    if (message.type === z.SELECT_YESNO) return { label: "", response: { type: T.SELECT_YESNO, yes: true } };
+    if (message.type === z.SELECT_OPTION) return { label: "", response: { type: T.SELECT_OPTION, index: 0 } };
+    if (message.type === z.SELECT_PLACE) {
+      let place = null;
+      for (let sequence = 0; sequence < 5 && !place; sequence++) if (!(message.field_mask & 1 << sequence + 8)) place = { player: 1, location: L.SZONE, sequence };
+      for (let sequence = 0; sequence < 5 && !place; sequence++) if (!(message.field_mask & 1 << sequence + 24)) place = { player: 0, location: L.SZONE, sequence };
+      if (!place) throw new Error(`\u5BF9\u624B\u627E\u4E0D\u5230\u53EF\u4EE5\u653E\u5361\u7684\u533A\u57DF\uFF08\u63A9\u7801 ${message.field_mask.toString(16)}\uFF09`);
+      return { label: "", response: { type: T.SELECT_PLACE, places: [place] } };
+    }
+    throw new Error(`\u5BF9\u624B\u8981\u505A\u9009\u62E9\uFF08${message.type}\uFF09\uFF0C\u8FD9\u79CD\u60C5\u51B5\u8FD8\u6CA1\u5904\u7406`);
+  };
+  const optionsFor = (message, idleActives) => {
+    if (message.player === 1) return [opponentChoice(message)];
     switch (message.type) {
       case z.SELECT_IDLECMD: {
         const options = [];
@@ -3225,6 +3291,9 @@ function createSearcher(engine, setup, cardOf, lines, saveLimit, stopped = () =>
         let place = null;
         for (let sequence = 0; sequence < 7 && !place; sequence++) if (!(mask & 1 << sequence)) place = { player: 0, location: L.MZONE, sequence };
         for (let sequence = 0; sequence < 5 && !place; sequence++) if (!(mask & 1 << sequence + 8)) place = { player: 0, location: L.SZONE, sequence };
+        for (let sequence = 0; sequence < 7 && !place; sequence++) if (!(mask & 1 << sequence + 16)) place = { player: 1, location: L.MZONE, sequence };
+        for (let sequence = 0; sequence < 5 && !place; sequence++) if (!(mask & 1 << sequence + 24)) place = { player: 1, location: L.SZONE, sequence };
+        if (!place) throw new Error(`\u627E\u4E0D\u5230\u53EF\u4EE5\u653E\u5361\u7684\u533A\u57DF\uFF08${message.type === z.SELECT_PLACE ? "\u653E\u7F6E" : "\u9009\u533A"}\uFF0C\u63A9\u7801 ${(mask >>> 0).toString(16)}\uFF0C\u73A9\u5BB6 ${message.player}\uFF09`);
         const type = message.type === z.SELECT_PLACE ? T.SELECT_PLACE : T.SELECT_DISFIELD;
         return [{ label: "", response: { type, places: [place] } }];
       }
@@ -3250,14 +3319,16 @@ function createSearcher(engine, setup, cardOf, lines, saveLimit, stopped = () =>
     }
     throw new Error(`\u89C4\u5219\u5F15\u64CE\u8981\u4E00\u79CD\u8FD8\u6CA1\u5904\u7406\u7684\u9009\u62E9\uFF08${message.type}\uFF09`);
   };
-  const duel = engine.newDuel(setup.hand, setup.main, setup.extra);
-  const copyLine = (line) => ({ ...line, steps: [...line.steps], activations: [...line.activations], drawn: new Map(line.drawn) });
+  const duel = engine.newDuel(setup.hand, setup.main, setup.extra, setup.opponentHand ?? []);
+  const copyLine = (line) => ({ ...line, steps: [...line.steps], activations: [...line.activations], drawn: new Map(line.drawn), path: [...line.path] });
   const toDecision = (line) => {
+    current = line;
     while (true) {
       const message = engine.advance(duel, (event) => {
         if (event.type === z.CHAINING && event.controller === 0) line.activations.push(`${event.code}:${event.description}`);
         if (event.type === z.SUMMONING) line.normalSummoned = true;
         if (event.type === z.DRAW && event.player === 0) for (const card of event.drawn) line.drawn.set(card.code, (line.drawn.get(card.code) ?? 0) + 1);
+        if (event.type === z.DRAW && event.player === 1 && line.interrupted) line.draws += event.drawn.length;
       });
       handCounts = null;
       drawn = line.drawn;
@@ -3275,7 +3346,8 @@ function createSearcher(engine, setup, cardOf, lines, saveLimit, stopped = () =>
       return { message, options };
     }
   };
-  const choose2 = (line, message, option) => {
+  const choose2 = (line, message, option, index) => {
+    line.path.push(index);
     if (option.label) line.steps.push(option.label);
     if (message.type === z.SELECT_UNSELECT_CARD && option.response.index !== null) line.floor = zoneKey(message.select_cards[option.response.index]);
     engine.respond(duel, option.response);
@@ -3296,7 +3368,8 @@ function createSearcher(engine, setup, cardOf, lines, saveLimit, stopped = () =>
       engine.respond(duel, (activate ?? options[0]).response);
     }
   };
-  const evaluate = (idle, steps) => {
+  const evaluate = (idle, line) => {
+    const steps = line.steps;
     let message = idle;
     for (let guard = 0; guard < 10 && message; guard++) {
       handCounts = null;
@@ -3326,22 +3399,22 @@ function createSearcher(engine, setup, cardOf, lines, saveLimit, stopped = () =>
     const onBoard = [...field, ...sets];
     const deckCards = known(engine.cards(duel, L.DECK));
     const zones = { grave, deck: deckCards, extra, hand: notDrawn, field: onBoard };
-    const conditionsHold = (line, card) => {
+    const conditionsHold = (line2, card) => {
       const others = [...onBoard, ...hand].filter((other) => other !== card);
-      return line.besides.every((ids) => others.some((other) => ids.includes(other.id))) && line.inExtra.every((ids) => extra.some((other) => ids.includes(other.id))) && line.inGrave.every((ids) => grave.some((other) => ids.includes(other.id)));
+      return line2.besides.every((ids) => others.some((other) => ids.includes(other.id))) && line2.inExtra.every((ids) => extra.some((other) => ids.includes(other.id))) && line2.inGrave.every((ids) => grave.some((other) => ids.includes(other.id)));
     };
-    const worth = (card, line, reached, depth, names3) => {
+    const worth = (card, line2, reached, depth, names3) => {
       const chain = [];
       let value2 = 0;
-      if (line.level >= 0 && !(reached && line.timing === "own") && !(!reached && line.timing === "summon")) {
-        value2 = line.timing === "own" ? OWN_TURN_VALUE : LEVELS[line.level].weight * line.uses;
+      if (line2.level >= 0 && !(reached && line2.timing === "own") && !(!reached && line2.timing === "summon")) {
+        value2 = line2.timing === "own" ? OWN_TURN_VALUE : LEVELS[line2.level].weight * line2.uses;
       }
-      if (line.reach && depth < REACH_DEPTH) {
-        for (let picked = 0; picked < line.reach.count; picked++) {
+      if (line2.reach && depth < REACH_DEPTH) {
+        for (let picked = 0; picked < line2.reach.count; picked++) {
           let best = null;
           const tried = /* @__PURE__ */ new Set();
-          for (const other of zones[line.reach.zone]) {
-            if (other === card || names3.has(other.id) || tried.has(other.id) || !line.reach.ids.includes(other.id)) continue;
+          for (const other of zones[line2.reach.zone]) {
+            if (other === card || names3.has(other.id) || tried.has(other.id) || !line2.reach.ids.includes(other.id)) continue;
             tried.add(other.id);
             const otherLine = lines.find((candidate) => candidate.card.id === other.id);
             if (!otherLine || !conditionsHold(otherLine, other)) continue;
@@ -3361,22 +3434,22 @@ function createSearcher(engine, setup, cardOf, lines, saveLimit, stopped = () =>
     };
     const consider = (cards, place, wheres) => {
       for (const card of new Set(cards)) {
-        const line = lines.find((candidate) => candidate.card.id === card.id);
-        if (!line || !wheres.includes(line.where) || countedNames.has(card.id)) continue;
-        if (!conditionsHold(line, card)) continue;
+        const line2 = lines.find((candidate) => candidate.card.id === card.id);
+        if (!line2 || !wheres.includes(line2.where) || countedNames.has(card.id)) continue;
+        if (!conditionsHold(line2, card)) continue;
         countedNames.add(card.id);
-        const result = worth(card, line, false, 0, countedNames);
+        const result = worth(card, line2, false, 0, countedNames);
         const own = result.value - result.chain.reduce((sum, item) => sum + item.value, 0);
         if (own > 0 || result.chain.length > 0) {
-          counted.push({ card, level: line.level, uses: line.uses, place, value: own, ownTurn: line.timing === "own" }, ...result.chain);
+          counted.push({ card, level: line2.level, uses: line2.uses, place, value: own, ownTurn: line2.timing === "own" }, ...result.chain);
         }
       }
     };
     consider(onBoard, "\u573A\u4E0A", ["field", "any", "fieldOrHand"]);
     consider(grave, "\u5893\u5730", ["grave", "any"]);
     consider(notDrawn, "\u624B\u91CC", ["hand", "fieldOrHand"]);
-    const value = counted.reduce((sum, item) => sum + item.value, 0);
-    return { value, field, sets, counted, steps };
+    const value = counted.reduce((sum, item) => sum + item.value, 0) - line.draws * DRAW_PENALTY;
+    return { value, field, sets, counted, steps, path: [...line.path], draws: line.draws };
   };
   const local = /* @__PURE__ */ new Set();
   let states = 0;
@@ -3399,7 +3472,7 @@ function createSearcher(engine, setup, cardOf, lines, saveLimit, stopped = () =>
       return;
     }
     nodes++;
-    const state2 = [L.MZONE, L.SZONE, L.HAND, L.GRAVE, L.REMOVED, L.EXTRA].map((location) => engine.cards(duel, location).map((info) => `${info.code}${info.position & I.FACEUP ? "u" : "d"}`).sort().join(",")).join("|") + `|${[...line.activations].sort().join(",")}|${line.normalSummoned}|${message.type}|${options.map((option) => option.label).join(";")}|${line.floor}`;
+    const state2 = [L.MZONE, L.SZONE, L.HAND, L.GRAVE, L.REMOVED, L.EXTRA].map((location) => engine.cards(duel, location).map((info) => `${info.code}${info.position & I.FACEUP ? "u" : "d"}`).sort().join(",")).join("|") + `|${[...line.activations].sort().join(",")}|${line.normalSummoned}|${message.type}|${options.map((option) => option.label).join(";")}|${line.floor}` + (opponent ? `|${opponent.code}:${opponent.at}:${opponent.target}:${line.interrupted ? 1 : 0}:${line.draws}` : "");
     if (alreadySeen(state2)) return;
     states++;
     const isIdle = message.type === z.SELECT_IDLECMD;
@@ -3414,12 +3487,12 @@ function createSearcher(engine, setup, cardOf, lines, saveLimit, stopped = () =>
     }
     if (isIdle) {
       drawn = line.drawn;
-      record(evaluate(message, line.steps));
+      record(evaluate(message, line));
     }
     for (let index = 0; index < options.length && nodes < budget && !interrupted; index++) {
       if (index > 0 || isIdle) back();
       const child = copyLine(line);
-      choose2(child, message, options[index]);
+      choose2(child, message, options[index], index);
       const next = toDecision(child);
       if (!next) continue;
       const parentBack = back;
@@ -3427,7 +3500,7 @@ function createSearcher(engine, setup, cardOf, lines, saveLimit, stopped = () =>
       const childRestore = () => {
         parentBack();
         const replayed = copyLine(line);
-        choose2(replayed, message, option);
+        choose2(replayed, message, option, index);
         toDecision(replayed);
       };
       visit(child, next.message, next.options, childRestore);
@@ -3435,14 +3508,25 @@ function createSearcher(engine, setup, cardOf, lines, saveLimit, stopped = () =>
     if (saved) saves--;
   };
   const start = engine.save();
-  const newLine = () => ({ steps: [], activations: [], normalSummoned: false, idleActives: /* @__PURE__ */ new Set(), drawn: /* @__PURE__ */ new Map(), floor: "" });
+  const newLine = () => ({
+    steps: [],
+    activations: [],
+    normalSummoned: false,
+    idleActives: /* @__PURE__ */ new Set(),
+    drawn: /* @__PURE__ */ new Map(),
+    floor: "",
+    path: [],
+    opportunities: 0,
+    interrupted: null,
+    draws: 0
+  });
   const navigate = (path) => {
     engine.load(start);
     const line = newLine();
     let decision = toDecision(line);
     for (const index of path) {
-      if (!decision) return null;
-      choose2(line, decision.message, decision.options[index]);
+      if (!decision || index >= decision.options.length) return null;
+      choose2(line, decision.message, decision.options[index], index);
       decision = toDecision(line);
     }
     return decision ? { line, ...decision } : null;
@@ -3457,9 +3541,27 @@ function createSearcher(engine, setup, cardOf, lines, saveLimit, stopped = () =>
       let board = null;
       if (node.message.type === z.SELECT_IDLECMD) {
         drawn = node.line.drawn;
-        board = evaluate(node.message, node.line.steps);
+        board = evaluate(node.message, node.line);
       }
       return { count: node.options.length, board };
+    },
+    /** The opponent's chances to use a card along our route (our choices), in order. */
+    opportunities(path, code) {
+      recording = { code, found: [] };
+      opponent = null;
+      navigate(path);
+      const found2 = recording.found;
+      recording = null;
+      return found2;
+    },
+    /** Search our best continuation after the opponent's play, from the route prefix where it happens. */
+    exploreInterrupted(prefix, play, limit) {
+      opponent = play;
+      lastTargets = 0;
+      const explored = this.explore(prefix, limit);
+      const targets = lastTargets;
+      opponent = null;
+      return { ...explored, targets };
     },
     /** Search below a node with a budget of nodes; the boards found, best first. */
     explore(path, limit) {
@@ -3495,7 +3597,7 @@ function summarize(firsts, results, taskCounts, extraBoards, states, seconds) {
       best: boards[0] ?? null
     };
   });
-  return { boards: [...best.values()].sort(boardOrder), branches, states, seconds };
+  return { boards: [...best.values()].sort(boardOrder), branches, interruptions: [], states, seconds };
 }
 function planHand(engine, setup, cardOf, lines, nodeLimit = 3e4) {
   const started = performance.now();
@@ -3513,10 +3615,13 @@ async function runWorker({ setup, cards, lines, saveLimit, shared, seen }) {
   const stopped = () => Atomics.add(counters, 0, 1) >= 0 && Atomics.load(counters, 1) === 1;
   const searcher = createSearcher(engine, setup, (code) => byCode.get(code), lines, saveLimit, stopped, sharedSeen(new BigInt64Array(seen)));
   parentPort.on("message", (task) => {
-    parentPort.postMessage({ id: task.id, explored: searcher.explore(task.path, Infinity), states: searcher.states() });
+    const limit = task.limit ?? Infinity;
+    const explored = task.play ? searcher.exploreInterrupted(task.path, task.play, limit) : searcher.explore(task.path, limit);
+    parentPort.postMessage({ id: task.id, explored, states: searcher.states() });
   });
   parentPort.postMessage({ ready: true });
 }
+var INTERRUPTION_NODES = 3e3;
 async function planParallel(engine, setup, cardOf, cards, lines, limits, threads = Math.max(1, Math.min(availableParallelism() - 1, 8))) {
   const started = performance.now();
   const searcher = createSearcher(engine, setup, cardOf, lines, 8);
@@ -3541,14 +3646,8 @@ async function planParallel(engine, setup, cardOf, cards, lines, limits, threads
   }
   const taskCounts = byFirst.map((group) => group.length);
   const taskFirst = queue.map((task) => task.first);
-  const results = [];
-  let states = 0;
   const shared = new SharedArrayBuffer(8);
   const counters = new Int32Array(shared);
-  const deadline = started + limits.seconds * 1e3;
-  const watch = setInterval(() => {
-    if (Atomics.load(counters, 0) >= limits.nodes || performance.now() >= deadline) Atomics.store(counters, 1, 1);
-  }, 50);
   const workerSetup = {
     role: "plan-worker",
     setup,
@@ -3558,31 +3657,102 @@ async function planParallel(engine, setup, cardOf, cards, lines, limits, threads
     shared,
     seen: new SharedArrayBuffer(SEEN_SLOTS * 8)
   };
-  try {
-    await Promise.all(Array.from({ length: Math.min(threads, queue.length) }, () => new Promise((resolve, reject) => {
-      const worker = new Worker2(new URL(import.meta.url), { workerData: workerSetup });
-      let workerStates = 0;
-      const next = () => {
-        const task = Atomics.load(counters, 1) === 1 ? void 0 : queue.shift();
-        if (task) worker.postMessage(task);
-        else {
-          states += workerStates;
-          void worker.terminate().then(() => resolve());
-        }
-      };
+  const workers = Array.from({ length: Math.min(threads, Math.max(queue.length, 1)) }, () => new Worker2(new URL(import.meta.url), { workerData: workerSetup }));
+  const ready = /* @__PURE__ */ new Set();
+  const workerStates = /* @__PURE__ */ new Map();
+  const states = () => [...workerStates.values()].reduce((sum, count) => sum + count, 0);
+  const run = (tasks, seconds) => new Promise((resolve, reject) => {
+    const pending = [...tasks];
+    const results = /* @__PURE__ */ new Map();
+    Atomics.store(counters, 0, 0);
+    Atomics.store(counters, 1, 0);
+    const deadline = performance.now() + seconds * 1e3;
+    const watch = setInterval(() => {
+      if (Atomics.load(counters, 0) >= limits.nodes || performance.now() >= deadline) Atomics.store(counters, 1, 1);
+    }, 50);
+    let busy = 0;
+    const finish = () => {
+      clearInterval(watch);
+      resolve(results);
+    };
+    const feed = (worker) => {
+      const task = Atomics.load(counters, 1) === 1 ? void 0 : pending.shift();
+      if (task) {
+        busy++;
+        worker.postMessage(task);
+      } else if (busy === 0) finish();
+    };
+    for (const worker of workers) {
+      worker.removeAllListeners("message");
+      worker.removeAllListeners("error");
       worker.on("message", (message) => {
-        if (!message.ready) {
-          results.push({ first: taskFirst[message.id], explored: message.explored });
-          workerStates = message.states;
+        if (message.ready) {
+          ready.add(worker);
+          feed(worker);
+          return;
         }
-        next();
+        results.set(message.id, message.explored);
+        workerStates.set(worker, message.states);
+        busy--;
+        feed(worker);
       });
-      worker.on("error", reject);
-    })));
+      worker.on("error", (error) => {
+        clearInterval(watch);
+        reject(error);
+      });
+      if (ready.has(worker)) feed(worker);
+    }
+  });
+  try {
+    const phase1 = await run(queue.map((task) => ({ id: task.id, path: task.path })), limits.seconds);
+    const results = [...phase1].map(([id, explored]) => ({ first: taskFirst[id], explored }));
+    const result = summarize(firsts, results, taskCounts, extraBoards, states(), (performance.now() - started) / 1e3);
+    const best = result.boards[0];
+    if (best && best.path.length > 0 && setup.opponentHand?.length) {
+      const chances = setup.opponentHand.map((code) => ({ code, found: searcher.opportunities(best.path, code) }));
+      const ids = /* @__PURE__ */ new Map();
+      let tasks = [];
+      for (const { code, found } of chances) {
+        for (const chance of found) {
+          const id = ids.size;
+          ids.set(id, { code, chance, target: 0 });
+          tasks.push({ id, path: best.path.slice(0, chance.prefix), play: { code, at: chance.at, target: 0 }, limit: INTERRUPTION_NODES });
+        }
+      }
+      const phaseDeadline = performance.now() + limits.seconds / 2 * 1e3;
+      const remaining = () => Math.max(1, (phaseDeadline - performance.now()) / 1e3);
+      const phase2 = await run(tasks, remaining());
+      tasks = [];
+      for (const [id, explored] of phase2) {
+        const info = ids.get(id);
+        for (let target = 1; target < (explored.targets ?? 0); target++) {
+          const newId = ids.size;
+          ids.set(newId, { ...info, target });
+          tasks.push({ id: newId, path: best.path.slice(0, info.chance.prefix), play: { code: info.code, at: info.chance.at, target }, limit: INTERRUPTION_NODES });
+        }
+      }
+      const phase3 = tasks.length > 0 ? await run(tasks, remaining()) : /* @__PURE__ */ new Map();
+      const all = new Map([...phase2, ...phase3]);
+      for (const { code, found } of chances) {
+        const card = cardOf(code);
+        if (!card) continue;
+        let worst = null;
+        for (const [id, explored] of all) {
+          const info = ids.get(id);
+          if (info.code !== code || explored.nodes === 0 && !explored.complete) continue;
+          const board = explored.boards[0] ?? null;
+          const value = board?.value ?? -Infinity;
+          if (!worst || value < (worst.board?.value ?? -Infinity)) worst = { card, opportunities: found.length, after: info.chance.after, board, complete: explored.complete };
+        }
+        result.interruptions.push(worst ?? { card, opportunities: 0, after: "", board: null, complete: true });
+      }
+      result.seconds = (performance.now() - started) / 1e3;
+      result.states = states();
+    }
+    return result;
   } finally {
-    clearInterval(watch);
+    await Promise.all(workers.map((worker) => worker.terminate()));
   }
-  return summarize(firsts, results, taskCounts, extraBoards, states, (performance.now() - started) / 1e3);
 }
 async function planText(input, handText, tiersText, limits) {
   const { cards, deck } = await loadDeck(input);
@@ -3607,7 +3777,12 @@ async function planText(input, handText, tiersText, limits) {
   const byCode = /* @__PURE__ */ new Map();
   for (const card of [...cards, ...deckCards]) for (const id of [code(card), card.id, ...card.altIds]) byCode.set(id, card);
   const engine = await startEngine(data);
-  const setup = { hand: hand.map(code), main: pile.map(code), extra: deck.extra.flatMap((entry) => Array(entry.count).fill(code(entry.card))) };
+  const setup = {
+    hand: hand.map(code),
+    main: pile.map(code),
+    extra: deck.extra.flatMap((entry) => Array(entry.count).fill(code(entry.card))),
+    opponentHand: Object.values(HAND_TRAPS)
+  };
   const lines = resolveTiers(tiers, deckCards, archetypesOf(cards));
   const result = await planParallel(engine, setup, (id) => byCode.get(id), [...byCode], lines, limits);
   const libraries = [...engine.missingScripts].filter((name) => !/^c\d+\.lua$/.test(name));
@@ -3620,6 +3795,8 @@ export {
   LEVELS,
   parseTiers,
   resolveTiers,
+  DRAW_PENALTY,
+  HAND_TRAPS,
   boardOrder,
   SEEN_SLOTS,
   sharedSeen,

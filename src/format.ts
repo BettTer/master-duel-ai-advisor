@@ -4,7 +4,7 @@ import type { Card } from "./cards.ts";
 import { SECTIONS, type Deck, type Section } from "./deck.ts";
 import type { Lock, LockPair, LockReport } from "./locks.ts";
 import { groupMatches, type Group, type Odds, type OddsReport, type Rules } from "./odds.ts";
-import { LEVELS, type Board, type PlanResult } from "./plan.ts";
+import { DRAW_PENALTY, LEVELS, type Board, type PlanResult } from "./plan.ts";
 import type { Reference } from "./refs.ts";
 import { findCards, inMasterDuel, zhKinds } from "./query.ts";
 
@@ -291,6 +291,17 @@ export function formatPlan(hand: Card[], result: PlanResult, problems: string[],
     const alternatives = others.slice(0, 5);
     if (alternatives.length > 0) {
       lines.push("", "其他的场（每种场只列最好的一条路线）：", ...alternatives.map((board) => `  [${board.value}] ${fieldText(board)}`));
+    }
+  }
+  if (result.interruptions.length > 0) {
+    lines.push("", "被打断的情况（对手拿着这张卡，在最大场那条路线上挑对我们最狠的时机用）：");
+    for (const { card, opportunities, after, board, complete } of result.interruptions) {
+      const name = `「${card.cn || card.en}」`;
+      if (opportunities === 0) { lines.push(`  ${name}：这条路线上没有发动的时机`); continue; }
+      if (!board) { lines.push(`  ${name}：在「${after}」后发动，之后做不出任何场`); continue; }
+      const draws = board.draws > 0 ? `，对手抽了 ${board.draws} 张（每张扣 ${DRAW_PENALTY}）` : "";
+      lines.push(`  ${name}（${opportunities} 个时机）：在「${after}」后发动${draws} → 妥协场 ${fieldText(board)}，价值 ${board.value}${complete ? "" : "（没搜完）"}`);
+      lines.push(...routeLines(board.steps).map((line) => `  ${line}`));
     }
   }
   lines.push("", "第一步的每种选择：");

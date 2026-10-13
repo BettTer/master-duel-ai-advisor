@@ -8,7 +8,7 @@ import {
   refresh,
   search,
   writeText
-} from "./chunks/chunk-CLFYRDAU.mjs";
+} from "./chunks/chunk-I5WTTKQ6.mjs";
 import "./chunks/chunk-KT3BCFM7.mjs";
 import "./chunks/chunk-5P7U5YBU.mjs";
 
@@ -134,7 +134,7 @@ async function main(argv) {
       if (positionals.length === 0 || !values.hand || !values.tiers || positionals[0] === "-" && values.tiers === "-") break;
       const deck = positionals[0] === "-" ? readFileSync2(0, "utf8") : positionals.join(" ");
       const tiers = values.tiers === "-" ? readFileSync2(0, "utf8") : existsSync2(values.tiers) ? readFileSync2(values.tiers, "utf8") : values.tiers;
-      const { planText } = await import("./chunks/plan-CKX67FCJ.mjs");
+      const { planText } = await import("./chunks/plan-NCW4CIDV.mjs");
       console.log(await planText(deck, values.hand, tiers, { nodes: Number(values.limit ?? 1e6), seconds: Number(values.seconds ?? 45) }));
       return 0;
     }

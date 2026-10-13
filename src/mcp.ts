@@ -113,7 +113,7 @@ server.registerTool(
       "Options after 分号: 回合外 → 墓地|卡组|额外|手里|场上 <cards> (on the opponent's turn it brings out such cards; it is worth what they are worth, followed as far as the chain goes), 带 N 只, 要 另有 <cards>, 要 额外有 <cards>, 要 墓地有 <cards>, 在手里 (hand traps), 在墓地, 在场上或墓地, 在场上或手里, 自己回合 (an Ignition Effect: worth 1 going first), 召唤时 (only when summoned: worth 0 unless brought out on the opponent's turn).",
       "<cards> is written like card text: 「卡名」, 「字段」怪兽, 2星, 4星以下, 光暗, 兽族, 同调, 连接.",
       "Example: 鲜花女男爵：第一级 / 幻透翼同调龙：第二级×2 / 灰流丽：第二级；在手里 / 三英之相剑师：第二级；自己回合 / 卫星闪灵·淘气精灵：保护；回合外 → 墓地 2星 怪兽 / I：P百变莱娜：回合外 → 额外 连接 怪兽；要 另有 怪兽",
-      "Each card name counts once. Traps, Quick-Play Spells and Infinite Impermanence are set automatically before the turn ends. Cards drawn by effects are never played. The opponent does nothing.",
+      "Each card name counts once. Traps, Quick-Play Spells and Infinite Impermanence are set automatically before the turn ends. Cards drawn by effects are never played. The opponent does nothing during the main search; afterwards the result also shows, for Ash Blossom, Infinite Impermanence and Maxx \"C\", the moment on the best route where using it hurts most and our best fallback board from there (each card the opponent draws from Maxx \"C\" costs 4 points). That takes up to half of `seconds` again.",
     ].join("\n"),
     inputSchema: z.object({
       deck: z.string().min(1).describe("Deck URL, YDKE string, .ydk contents or a card list"),

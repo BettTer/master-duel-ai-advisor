@@ -11,7 +11,7 @@ const OPPONENT_CARD = 89631139; // Blue-Eyes White Dragon: a Normal Monster, so 
 
 export interface Engine {
   /** Start a duel going first with this hand, the rest of the Main Deck and the Extra Deck, before any processing. */
-  newDuel(hand: number[], main: number[], extra: number[]): OcgDuelHandle;
+  newDuel(hand: number[], main: number[], extra: number[], opponentHand?: number[]): OcgDuelHandle;
   /** Run until the engine needs a decision; returns that message, or null when the duel ended. */
   advance(duel: OcgDuelHandle, onMessage?: (message: OcgMessage) => void): OcgMessage | null;
   respond(duel: OcgDuelHandle, response: OcgResponse): void;
@@ -75,7 +75,7 @@ export async function startEngine(data: Map<number, EngineCard>): Promise<Engine
   };
 
   return {
-    newDuel(hand, main, extra) {
+    newDuel(hand, main, extra, opponentHand = []) {
       const duel = lib.createDuel({
         flags: OcgDuelMode.MODE_MR5,
         seed: [1n, 2n, 3n, 4n],
@@ -92,6 +92,7 @@ export async function startEngine(data: Map<number, EngineCard>): Promise<Engine
       hand.forEach((code) => add(0, code, OcgLocation.HAND));
       main.forEach((code) => add(0, code, OcgLocation.DECK));
       extra.forEach((code) => add(0, code, OcgLocation.EXTRA));
+      opponentHand.forEach((code) => add(1, code, OcgLocation.HAND));
       for (let i = 0; i < 40; i++) add(1, OPPONENT_CARD, OcgLocation.DECK);
       lib.startDuel(duel);
       return duel;
