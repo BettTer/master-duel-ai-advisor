@@ -4,11 +4,12 @@ import {
   SEEN_SLOTS,
   boardOrder,
   parseTiers,
+  planHand,
   planParallel,
   planText,
   resolveTiers,
   sharedSeen
-} from "./chunk-EBUC6NDS.mjs";
+} from "./chunk-CLFYRDAU.mjs";
 import "./chunk-KT3BCFM7.mjs";
 import "./chunk-5P7U5YBU.mjs";
 export {
@@ -16,6 +17,7 @@ export {
   SEEN_SLOTS,
   boardOrder,
   parseTiers,
+  planHand,
   planParallel,
   planText,
   resolveTiers,

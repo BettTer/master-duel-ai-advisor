@@ -17,7 +17,7 @@ const USAGE = `Yu-Gi-Oh! Master Duel card lookup
   mdcard odds <deck> --rules <file|-|text> [--change "-1 A, +1 B"]
                                            opening-hand odds going first and second, from rules of what each
                                            card needs and gives (see SKILL.md); --change compares a changed deck
-  mdcard plan <deck> --hand "A,B,C,D,E" --tiers <file|-|text> [--seconds 30] [--limit 1000000]
+  mdcard plan <deck> --hand "A,B,C,D,E" --tiers <file|-|text> [--seconds 45] [--limit 1000000]
                                            the best board an opening hand reaches going first, searched with
                                            EDOPro's rules engine and scored by the tiers (see SKILL.md)
   mdcard banlist [--status forbidden|limited1|limited2] [--upcoming]
@@ -82,7 +82,7 @@ async function main(argv: string[]): Promise<number> {
       const deck = positionals[0] === "-" ? readFileSync(0, "utf8") : positionals.join(" ");
       const tiers = values.tiers === "-" ? readFileSync(0, "utf8") : existsSync(values.tiers) ? readFileSync(values.tiers, "utf8") : values.tiers;
       const { planText } = await import("./plan.ts"); // the rules engine is loaded only for this command
-      console.log(await planText(deck, values.hand, tiers, { nodes: Number(values.limit ?? 1_000_000), seconds: Number(values.seconds ?? 30) }));
+      console.log(await planText(deck, values.hand, tiers, { nodes: Number(values.limit ?? 1_000_000), seconds: Number(values.seconds ?? 45) }));
       return 0;
     }
     case "banlist": {

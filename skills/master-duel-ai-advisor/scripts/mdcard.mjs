@@ -8,7 +8,7 @@ import {
   refresh,
   search,
   writeText
-} from "./chunks/chunk-EBUC6NDS.mjs";
+} from "./chunks/chunk-CLFYRDAU.mjs";
 import "./chunks/chunk-KT3BCFM7.mjs";
 import "./chunks/chunk-5P7U5YBU.mjs";
 
@@ -69,7 +69,7 @@ var USAGE = `Yu-Gi-Oh! Master Duel card lookup
   mdcard odds <deck> --rules <file|-|text> [--change "-1 A, +1 B"]
                                            opening-hand odds going first and second, from rules of what each
                                            card needs and gives (see SKILL.md); --change compares a changed deck
-  mdcard plan <deck> --hand "A,B,C,D,E" --tiers <file|-|text> [--seconds 30] [--limit 1000000]
+  mdcard plan <deck> --hand "A,B,C,D,E" --tiers <file|-|text> [--seconds 45] [--limit 1000000]
                                            the best board an opening hand reaches going first, searched with
                                            EDOPro's rules engine and scored by the tiers (see SKILL.md)
   mdcard banlist [--status forbidden|limited1|limited2] [--upcoming]
@@ -134,8 +134,8 @@ async function main(argv) {
       if (positionals.length === 0 || !values.hand || !values.tiers || positionals[0] === "-" && values.tiers === "-") break;
       const deck = positionals[0] === "-" ? readFileSync2(0, "utf8") : positionals.join(" ");
       const tiers = values.tiers === "-" ? readFileSync2(0, "utf8") : existsSync2(values.tiers) ? readFileSync2(values.tiers, "utf8") : values.tiers;
-      const { planText } = await import("./chunks/plan-EXLVQOBF.mjs");
-      console.log(await planText(deck, values.hand, tiers, { nodes: Number(values.limit ?? 1e6), seconds: Number(values.seconds ?? 30) }));
+      const { planText } = await import("./chunks/plan-CKX67FCJ.mjs");
+      console.log(await planText(deck, values.hand, tiers, { nodes: Number(values.limit ?? 1e6), seconds: Number(values.seconds ?? 45) }));
       return 0;
     }
     case "banlist": {

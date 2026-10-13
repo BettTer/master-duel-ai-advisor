@@ -280,12 +280,12 @@ export function formatPlan(hand: Card[], result: PlanResult, problems: string[],
   if (!best) lines.push("", "没有找到任何能做的动作。");
   else {
     lines.push("", `最大场：${fieldText(best)}`, `  价值 ${best.value}`);
-    for (const place of ["场上", "墓地", "手里"] as const) {
+    for (const place of ["场上", "墓地", "手里", "带出"] as const) {
       const items = best.counted.filter((item) => item.place === place);
       if (items.length === 0) continue;
-      const text = items.map(({ card, level, uses, value, ownTurn }) =>
-        `「${card.cn || card.en}」${LEVELS[level].name}${uses > 1 ? `×${uses}` : ""}${ownTurn ? "（只在自己回合用）" : ""} ${value}`).join("、");
-      lines.push(`  算进去的（${place}）：${text}`);
+      const text = items.map(({ card, level, uses, value, ownTurn, via }) =>
+        `${via ? `「${via.cn || via.en}」→` : ""}「${card.cn || card.en}」${level >= 0 ? LEVELS[level].name : ""}${uses > 1 ? `×${uses}` : ""}${ownTurn ? "（只在自己回合用）" : ""} ${value}`).join("、");
+      lines.push(`  算进去的（${place === "带出" ? "对手回合带出" : place}）：${text}`);
     }
     lines.push("  路线：", ...routeLines(best.steps));
     const alternatives = others.slice(0, 5);
@@ -296,7 +296,7 @@ export function formatPlan(hand: Card[], result: PlanResult, problems: string[],
   lines.push("", "第一步的每种选择：");
   for (const branch of result.branches) {
     const how = branch.complete ? `全部搜完（${branch.nodes} 个节点）` : `搜了 ${branch.nodes} 个节点，到时间或节点上限没搜完`;
-    lines.push(`  ${branch.first}：${how}，最好 ${branch.best ? `[${branch.best.value}] ${fieldText(branch.best)}` : "无"}`);
+    lines.push(`  ${branch.first || "（不发动，继续）"}：${how}，最好 ${branch.best ? `[${branch.best.value}] ${fieldText(branch.best)}` : "无"}`);
   }
   const weights = LEVELS.map((level) => `${level.name} ${level.weight}`).join("、");
   lines.push(`共 ${result.states} 个不同局面，${result.seconds.toFixed(1)} 秒。价值＝对手回合能用的打断按级别加权（${weights}），乘次数；只在自己回合用的算 1。`);

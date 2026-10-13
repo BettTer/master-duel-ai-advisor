@@ -91,22 +91,37 @@ The tool tries every order of using the hand's cards. Each card is used at most 
 
 ## Opening-hand route planner
 
-`plan` finds the best board a given opening hand can reach going first. It runs EDOPro's rules engine (ygopro-core with ProjectIgnis' card scripts), so every summon, cost, lock and once-per-turn limit is enforced by the real card scripts rather than by your reading of them. It tries every line from the hand and scores each board by tiers you write. It needs Node.js 22.13 or later, and the first run downloads the engine's card database and scripts (about 60 MB). The search runs on several threads and stops when every line has been tried, usually within 15 seconds; `--seconds` caps the time (default 30) and `--limit` the number of positions.
+`plan` finds the best board a given opening hand can reach going first. It runs EDOPro's rules engine (ygopro-core with ProjectIgnis' card scripts), so every summon, cost, lock and once-per-turn limit is enforced by the real card scripts rather than by your reading of them. It tries every line from the hand and scores each board by tiers you write. It needs Node.js 22.13 or later, and the first run downloads the engine's card database and scripts (about 60 MB). The search runs on several threads and stops when every line has been tried, usually within 15 seconds; `--seconds` caps the time (default 45) and `--limit` the number of positions.
 
-The score is the value of what we can use on the opponent's turn: the monsters on the board, the spells and traps set before the turn ends, hand traps kept in the hand, and effects that work from the GY. Each interruption has a level, and each level is worth far more than the next, but not infinitely more:
+The score is the value of everything we can use on the opponent's turn: monsters on the board, spells and traps set before the turn ends, hand traps kept in the hand, effects that work from the GY, and whatever those cards bring out during the opponent's turn. The search only finds routes; it is only as good as the list of endpoints (终端) you give it, so the analysis below is the part that matters.
+
+**Endpoint analysis.** Go through every card in the Main and Extra Deck and answer, from its text:
+
+1. *What can it do by itself on the opponent's turn?* Look for 自己·对方回合, 对方回合, 对方把…发动时, 对方…的场合, 只要…存在. Classify it:
+   - 硬康: negates an activation. 第一级 negates anything (三色康); 第二级 has a condition (only monsters, only Level 5 or higher, only face-up cards); 2.5级 a very narrow one (only destruction effects).
+   - 软康: a tax or lock on the opponent's effects. A monster that makes them discard for every effect, a card that stops searching, "Level 5 or higher cannot attack".
+   - 处理: removes a card on the opponent's turn: banish, destroy, send to the GY, return to the hand or Deck, change to face-down, place in a spell & trap zone. Read the whole effect: Icejade Gymir Aegirine looks like protection but also banishes every copy of the card it chains to.
+   - 保护: our cards cannot be targeted, destroyed or affected.
+2. *What can it bring out or add on the opponent's turn?* An effect usable on their turn that Special Summons, adds to the hand, or Synchro or Link Summons. Write `回合外 → <zone> <cards>`: Spright Elf brings a Level 2 from the GY, I:P Masquerena links on their turn, Melffy Wally returns to the hand and summons two Melffy from the Deck, Desert Locusts synchros on their main phase. Such a card is worth what it brings out, followed through as far as it goes (Melffy Catty adds Pinny, Pinny synchros into Locusts, Locusts into Borreload Savage), so a card with nothing of its own can still be the most valuable one on the board.
+3. *Does it fetch an endpoint on our own turn?* (LeVirtue Dragon adding Seventh Tachyon Burst, Melffy of the Forest adding Wally.) That needs no line: the search sees the fetched card.
+4. *Cards none of this describes* (Super Polymerization, which cannot be responded to; Maxx "C"; Nibiru) get 第0级, 1.5级 or a level you argue for, and you ask the user before adding a new one.
+
+Each level is worth far more than the next, but not infinitely more:
 
 | Level | Weight | What it is | Examples |
 |---|---|---|---|
-| 第0级 | 15 | cannot be stopped by the opponent | Super Polymerization (no one can respond to it) |
-| 第一级 | 10 | negates the activation of any card's effect, monster, spell or trap (三色康) | Baronne de Fleur |
+| 第0级 | 15 | cannot be stopped by the opponent | Super Polymerization |
+| 第一级 | 10 | 硬康 without conditions | Baronne de Fleur, Herald of the Arc Light, Borreload Savage Dragon |
 | 1.5级 | 6 | not a negation, but more than one | Maxx "C" |
-| 第二级 | 4 | a negation with a condition: only monster effects, only Level 5 or higher, only a face-up card's effects | Clear Wing Synchro Dragon, Despian Luluwalilith, Ash Blossom, Infinite Impermanence |
-| 2.5级 | 2 | a negation with a very narrow condition | Stardust Dragon (destruction effects only) |
-| 第三级 | 1 | removes a card: banish, destroy, send to the GY, return to the hand or Deck, change to face-down, place in a spell & trap zone | Snake-Eyes Vengeance Dragon, Fydraulis Harmonia |
+| 第二级 | 4 | 硬康 with a condition | Clear Wing Synchro Dragon, Spright Red, Ash Blossom, Infinite Impermanence |
+| 2.5级 | 2 | 硬康 with a very narrow condition | Stardust Dragon, Underworld Goddess of the Closed World |
+| 软康 | 2 | a tax or lock on the opponent's effects: above removal, well below a real negation | General Raiho of the Ice Barrier |
+| 第三级 | 1 | 处理 | Snake-Eyes Vengeance Dragon, Number 4: Stealth Kragen |
+| 保护 | 1 | 保护; only full immunity to everything would be worth arguing for more | Mudragon of the Swamp, Spright Elf's ① |
 
-These numbers come from the user's own choices: with the same materials Baronne beats Clear Wing, but they would not give up Clear Wing's two negations and an Ash Blossom kept in the hand for one Baronne; and Super Polymerization, which the opponent cannot respond to, is worth keeping over making a Baronne. Cards used up during the turn lose their value, so the search weighs costs by itself: it may summon a hand trap or discard it as a cost when what it gains is worth more. 第0级 and 1.5级 are for cards the three levels do not describe; ask the user before putting a new card there.
+These numbers come from the user's own choices with their Regenesis deck: with the same materials Baronne beats Clear Wing, but they would not give up Clear Wing's two negations and an Ash Blossom kept in the hand for one Baronne; and Super Polymerization is worth keeping over making a Baronne. 软康 and 保护 are the user's calls too: a tax is worth about half a conditional negation, and protection matters little unless it is complete. Cards used up during the turn lose their value, so the search weighs costs by itself.
 
-Write one line per card, with exactly one level: the best thing it can do on the opponent's turn. Baronne de Fleur is 第一级, whatever else it can do.
+Write one line per card, with one level and, where it applies, what it brings out:
 
 ```
 超融合：第0级
@@ -115,21 +130,23 @@ Write one line per card, with exactly one level: the best thing it can do on the
 增殖的G：1.5级；在手里
 幻透翼同调龙：第二级×2
 三英之相剑师：第二级；自己回合
-星尘龙：2.5级
-混沌之双翼：第三级；召唤时
 赫焉龙 大木偶剧场龙：第二级；要 额外有 「死狱乡」怪兽；在场上或墓地
 灰流丽：第二级；在手里
 无限泡影：第二级
-天地再世：第三级
+卫星闪灵·淘气精灵：保护；回合外 → 墓地 2星 怪兽
+I：P百变莱娜：回合外 → 额外 连接 怪兽；要 另有 怪兽
+童话动物·小小袋鼠：回合外 → 卡组 「童话动物」怪兽；带 2 只；在场上或手里
+童话动物·小海豹：回合外 → 额外 同调 怪兽；在手里
 ```
 
 - `×2`: it can do it twice on the opponent's turn through separate effects (Clear Wing's ① and ② are each once per turn).
-- `自己回合`: its effect works only on our own turn (an Ignition Effect). Going first the opponent has nothing to hit this turn, so it counts a flat 1 for what it can do on our next turn (Three Champions on the board is better than nothing, but mostly it is a step in the route, searching Blazing Cartesia).
-- `召唤时`: its effect works only when it is summoned (Chaos Angel banishing a card). Going first that moment passes with nothing to hit, so it counts 0.
-- Where it counts: by default on the field. `在手里` for hand traps, which work from the hand. Traps and Quick-Play Spells must be set to be used on the opponent's turn, and Infinite Impermanence can only be activated from the hand while we control no cards, so those count on the field and are set automatically before the turn ends. `在墓地` or `在场上或墓地` for effects that work from the GY.
-- `要 另有 <卡>`: it needs another card in the hand or on the field, such as a card to send as its cost. `要 额外有 <卡>`: its value is summoning something from the Extra Deck, so it counts only while that card is still there (Granguignol needs a 「死狱乡」 monster kept for it).
-- `<卡>` uses the same card-text descriptions as `odds` (「卡名」, 「字段」怪兽, 光暗, 4星以下 and so on).
-- Each card name counts once, since these effects are usually once per turn by name: a second Ash Blossom in the hand adds nothing.
+- `回合外 → <zone> <cards>`: zone is 墓地, 卡组, 额外, 手里 or 场上; `带 N 只` when it brings more than one. The tool checks the zone in the actual position: Elf is worth nothing with no valued Level 2 in the GY. A card brought out this way is summoned on the opponent's turn, so its 召唤时 effect counts and its 自己回合 effect does not.
+- `自己回合`: its effect works only on our own turn (an Ignition Effect). Going first the opponent has nothing to hit then, so it counts a flat 1 for our next turn (Three Champions on the board is better than nothing, but mostly it is a step in the route).
+- `召唤时`: its effect works only when it is summoned (Chaos Angel). Going first that moment passes with nothing to hit, so it counts 0, unless it is brought out on the opponent's turn.
+- Where it counts: by default on the field. `在手里` for hand traps. Traps, Quick-Play Spells and Infinite Impermanence must be set to be used on the opponent's turn, so they count on the field and are set automatically before the turn ends. `在墓地`, `在场上或墓地`, `在场上或手里` as the text says.
+- `要 另有 <卡>`: it needs another card in the hand or on the field, such as a tribute or a cost. `要 额外有 <卡>`: it summons that later, so it counts only while the card is still there. `要 墓地有 <卡>`: it works only with such a card in the GY.
+- `<卡>` uses the same card-text descriptions as `odds` (「卡名」, 「字段」怪兽, 光暗, 4星以下, 兽族 and so on).
+- Each card name counts once, since these effects are usually once per turn by name.
 
 How the search works, so you can explain its result: it starts going first with the opponent doing nothing, never activates the effects of cards valued in the hand on our own turn, never plays cards drawn by effects (they are random) except as a discard, sets the valued spells and traps, ends the turn, resolves the End Phase, and scores what the opponent faces. When two boards score the same, the shorter route comes first and the others are listed; mention the ties. The report lists the best board with its route, other boards, and each first action with whether its branch was searched completely. If a branch hit the limit, say that a better board may exist there.
 

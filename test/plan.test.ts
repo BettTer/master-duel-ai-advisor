@@ -47,7 +47,8 @@ test("boards compare by value, then by the shorter route", () => {
   assert.ok(boardOrder(board(19, 3), board(19, 6)) < 0);
   // The user's judgments: Baronne beats two second-level negations but not three (Clear Wing's two and an Ash Blossom
   // kept in the hand), and Super Polymerization is worth more than Baronne.
-  const [zero, first, , second] = LEVELS.map((level) => level.weight);
+  const weight = (name: string) => LEVELS.find((level) => level.name === name)!.weight;
+  const [zero, first, second] = [weight("第0级"), weight("第一级"), weight("第二级")];
   assert.ok(first > 2 * second && first < 3 * second && zero > first);
 });
 

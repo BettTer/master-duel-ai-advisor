@@ -2650,11 +2650,11 @@ function formatPlan(hand, result, problems, missing, missingScripts) {
   if (!best) lines.push("", "\u6CA1\u6709\u627E\u5230\u4EFB\u4F55\u80FD\u505A\u7684\u52A8\u4F5C\u3002");
   else {
     lines.push("", `\u6700\u5927\u573A\uFF1A${fieldText(best)}`, `  \u4EF7\u503C ${best.value}`);
-    for (const place of ["\u573A\u4E0A", "\u5893\u5730", "\u624B\u91CC"]) {
+    for (const place of ["\u573A\u4E0A", "\u5893\u5730", "\u624B\u91CC", "\u5E26\u51FA"]) {
       const items2 = best.counted.filter((item) => item.place === place);
       if (items2.length === 0) continue;
-      const text = items2.map(({ card, level, uses, value, ownTurn }) => `\u300C${card.cn || card.en}\u300D${LEVELS[level].name}${uses > 1 ? `\xD7${uses}` : ""}${ownTurn ? "\uFF08\u53EA\u5728\u81EA\u5DF1\u56DE\u5408\u7528\uFF09" : ""} ${value}`).join("\u3001");
-      lines.push(`  \u7B97\u8FDB\u53BB\u7684\uFF08${place}\uFF09\uFF1A${text}`);
+      const text = items2.map(({ card, level, uses, value, ownTurn, via }) => `${via ? `\u300C${via.cn || via.en}\u300D\u2192` : ""}\u300C${card.cn || card.en}\u300D${level >= 0 ? LEVELS[level].name : ""}${uses > 1 ? `\xD7${uses}` : ""}${ownTurn ? "\uFF08\u53EA\u5728\u81EA\u5DF1\u56DE\u5408\u7528\uFF09" : ""} ${value}`).join("\u3001");
+      lines.push(`  \u7B97\u8FDB\u53BB\u7684\uFF08${place === "\u5E26\u51FA" ? "\u5BF9\u624B\u56DE\u5408\u5E26\u51FA" : place}\uFF09\uFF1A${text}`);
     }
     lines.push("  \u8DEF\u7EBF\uFF1A", ...routeLines(best.steps));
     const alternatives = others.slice(0, 5);
@@ -2665,7 +2665,7 @@ function formatPlan(hand, result, problems, missing, missingScripts) {
   lines.push("", "\u7B2C\u4E00\u6B65\u7684\u6BCF\u79CD\u9009\u62E9\uFF1A");
   for (const branch of result.branches) {
     const how = branch.complete ? `\u5168\u90E8\u641C\u5B8C\uFF08${branch.nodes} \u4E2A\u8282\u70B9\uFF09` : `\u641C\u4E86 ${branch.nodes} \u4E2A\u8282\u70B9\uFF0C\u5230\u65F6\u95F4\u6216\u8282\u70B9\u4E0A\u9650\u6CA1\u641C\u5B8C`;
-    lines.push(`  ${branch.first}\uFF1A${how}\uFF0C\u6700\u597D ${branch.best ? `[${branch.best.value}] ${fieldText(branch.best)}` : "\u65E0"}`);
+    lines.push(`  ${branch.first || "\uFF08\u4E0D\u53D1\u52A8\uFF0C\u7EE7\u7EED\uFF09"}\uFF1A${how}\uFF0C\u6700\u597D ${branch.best ? `[${branch.best.value}] ${fieldText(branch.best)}` : "\u65E0"}`);
   }
   const weights = LEVELS.map((level) => `${level.name} ${level.weight}`).join("\u3001");
   lines.push(`\u5171 ${result.states} \u4E2A\u4E0D\u540C\u5C40\u9762\uFF0C${result.seconds.toFixed(1)} \u79D2\u3002\u4EF7\u503C\uFF1D\u5BF9\u624B\u56DE\u5408\u80FD\u7528\u7684\u6253\u65AD\u6309\u7EA7\u522B\u52A0\u6743\uFF08${weights}\uFF09\uFF0C\u4E58\u6B21\u6570\uFF1B\u53EA\u5728\u81EA\u5DF1\u56DE\u5408\u7528\u7684\u7B97 1\u3002`);
@@ -2992,8 +2992,12 @@ var LEVELS = [
   // a negation with a condition
   { name: "2.5\u7EA7", weight: 2 },
   // a negation with a very narrow condition, such as Stardust Dragon (destruction only)
-  { name: "\u7B2C\u4E09\u7EA7", weight: 1 }
+  { name: "\u8F6F\u5EB7", weight: 2 },
+  // a tax or lock on the opponent's effects, such as Raiho (discard for every effect)
+  { name: "\u7B2C\u4E09\u7EA7", weight: 1 },
   // banish, destroy, send to the GY, return to the hand or Deck, change to face-down
+  { name: "\u4FDD\u62A4", weight: 1 }
+  // our cards cannot be targeted, destroyed or affected; only full immunity is worth more
 ];
 var LEVEL_NAMES = {
   \u7B2C0\u7EA7: 0,
@@ -3004,9 +3008,21 @@ var LEVEL_NAMES = {
   \u7B2C\u4E8C\u7EA7: 3,
   "2.5\u7EA7": 4,
   "\u7B2C2.5\u7EA7": 4,
-  \u7B2C\u4E09\u7EA7: 5
+  \u8F6F\u5EB7: 5,
+  \u7B2C\u4E09\u7EA7: 6,
+  \u4FDD\u62A4: 7
 };
+var REACH_DEPTH = 5;
 var OWN_TURN_VALUE = 1;
+var REACH_ZONES = {
+  \u5893\u5730: "grave",
+  \u5361\u7EC4: "deck",
+  \u989D\u5916: "extra",
+  \u989D\u5916\u5361\u7EC4: "extra",
+  \u624B\u91CC: "hand",
+  \u624B\u5361: "hand",
+  \u573A\u4E0A: "field"
+};
 function findCard(cards, name) {
   const exact = cards.find((card) => hasName(card, name));
   if (exact) return exact;
@@ -3020,32 +3036,40 @@ function parseTiers(text, deck, pool) {
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim().replace(/^[-*•]\s*/, "");
     if (!line || line.startsWith("#")) continue;
-    const head = line.match(/^(.+?)\s*[：:]\s*(.*)$/);
+    const splits = [...line.matchAll(/[：:]/g)].map((match) => [line.slice(0, match.index).trim(), line.slice(match.index + 1).trim()]);
+    const head = splits.find(([candidate]) => cards.some((card) => hasName(card, candidate))) ?? splits[0];
     if (!head) {
       tiers.problems.push(`\u770B\u4E0D\u61C2\u8FD9\u4E00\u884C\uFF1A"${line}"`);
       continue;
     }
-    const [, name, body] = head;
+    const [name, body] = head;
     try {
       const card = findCard(cards, name);
       if (tiers.lines.some((other) => other.card.id === card.id)) throw new Error("\u4E00\u5F20\u5361\u53EA\u5199\u4E00\u884C");
-      const entry = { card, level: -1, uses: 1, where: "field", timing: "opponent", besides: [], inExtra: [] };
+      const entry = { card, level: -1, uses: 1, where: "field", timing: "opponent", reach: null, besides: [], inExtra: [], inGrave: [] };
       for (const item of body.split(/[；;]/).map((part) => part.trim()).filter(Boolean)) {
         let match;
-        if (match = item.match(/^(第0级|第零级|第一级|第?1\.5级|第二级|第?2\.5级|第三级)\s*(?:[×x*]\s*(\d+))?$/)) {
+        if (match = item.match(/^(第0级|第零级|第一级|软康|第?1\.5级|第二级|第?2\.5级|第三级|保护)\s*(?:[×x*]\s*(\d+))?$/)) {
           if (entry.level >= 0) throw new Error("\u4E00\u5F20\u5361\u53EA\u6709\u4E00\u4E2A\u7EA7\u522B");
           entry.level = LEVEL_NAMES[match[1]];
           entry.uses = Number(match[2] ?? 1);
         } else if (match = item.match(/^要\s*(?:手里或场上)?另有\s*(.+)$/)) entry.besides.push(parseGroup(match[1], pool));
         else if (match = item.match(/^要\s*额外(?:卡组)?(?:还)?有\s*(.+)$/)) entry.inExtra.push(parseGroup(match[1], pool));
-        else if (item === "\u5728\u5893\u5730") entry.where = "grave";
+        else if (match = item.match(/^要\s*墓地(?:里)?有\s*(.+)$/)) entry.inGrave.push(parseGroup(match[1], pool));
+        else if (match = item.match(/^回合外\s*(?:→|->)\s*(墓地|卡组|额外卡组|额外|手里|手卡|场上)\s*(.+)$/)) {
+          entry.reach = { zone: REACH_ZONES[match[1]], group: parseGroup(match[2], pool), count: entry.reach?.count ?? 1 };
+        } else if (match = item.match(/^带\s*(\d+)\s*(?:只|张)?$/)) {
+          if (entry.reach) entry.reach.count = Number(match[1]);
+          else throw new Error('"\u5E26 N \u53EA"\u8981\u5199\u5728"\u56DE\u5408\u5916 \u2192 \u2026"\u540E\u9762');
+        } else if (item === "\u5728\u5893\u5730") entry.where = "grave";
         else if (item === "\u5728\u573A\u4E0A\u6216\u5893\u5730") entry.where = "any";
         else if (item === "\u5728\u624B\u91CC") entry.where = "hand";
+        else if (item === "\u5728\u573A\u4E0A\u6216\u624B\u91CC") entry.where = "fieldOrHand";
         else if (item === "\u81EA\u5DF1\u56DE\u5408") entry.timing = "own";
         else if (item === "\u53EC\u5524\u65F6") entry.timing = "summon";
-        else throw new Error(`\u770B\u4E0D\u61C2"${item}"\uFF0C\u8981\u5199\u4E00\u4E2A\u7EA7\u522B\uFF08\u7B2C0\u7EA7\u3001\u7B2C\u4E00\u7EA7\u30011.5\u7EA7\u3001\u7B2C\u4E8C\u7EA7\u30012.5\u7EA7\u3001\u7B2C\u4E09\u7EA7\uFF0C\u53EF\u4EE5\u52A0\xD72\uFF09\u3001\u8981 \u53E6\u6709 <\u5361>\u3001\u8981 \u989D\u5916\u6709 <\u5361>\u3001\u5728\u624B\u91CC\u3001\u5728\u5893\u5730\u3001\u5728\u573A\u4E0A\u6216\u5893\u5730\u3001\u81EA\u5DF1\u56DE\u5408\u3001\u53EC\u5524\u65F6`);
+        else throw new Error(`\u770B\u4E0D\u61C2"${item}"\uFF0C\u8981\u5199\u4E00\u4E2A\u7EA7\u522B\uFF08\u7B2C0\u7EA7\u3001\u7B2C\u4E00\u7EA7\u3001\u8F6F\u5EB7\u30011.5\u7EA7\u3001\u7B2C\u4E8C\u7EA7\u30012.5\u7EA7\u3001\u7B2C\u4E09\u7EA7\u3001\u4FDD\u62A4\uFF0C\u53EF\u4EE5\u52A0\xD72\uFF09\u3001\u56DE\u5408\u5916 \u2192 <\u5728\u54EA> <\u5361>\u3001\u5E26 N \u53EA\u3001\u8981 \u53E6\u6709 <\u5361>\u3001\u8981 \u989D\u5916\u6709 <\u5361>\u3001\u8981 \u5893\u5730\u6709 <\u5361>\u3001\u5728\u624B\u91CC\u3001\u5728\u5893\u5730\u3001\u5728\u573A\u4E0A\u6216\u5893\u5730\u3001\u5728\u573A\u4E0A\u6216\u624B\u91CC\u3001\u81EA\u5DF1\u56DE\u5408\u3001\u53EC\u5524\u65F6`);
       }
-      if (entry.level < 0) throw new Error("\u6CA1\u5199\u7EA7\u522B");
+      if (entry.level < 0 && !entry.reach) throw new Error("\u6CA1\u5199\u7EA7\u522B\uFF0C\u4E5F\u6CA1\u5199\u56DE\u5408\u5916\u80FD\u5E26\u51FA\u4EC0\u4E48");
       tiers.lines.push(entry);
     } catch (error) {
       tiers.problems.push(`\u300C${name}\u300D\uFF1A${error instanceof Error ? error.message : error}`);
@@ -3055,12 +3079,19 @@ function parseTiers(text, deck, pool) {
 }
 function resolveTiers(tiers, deckCards, inArchetype) {
   const ids = (group) => deckCards.filter((card) => inGroup(card, group, inArchetype)).map((card) => card.id);
-  return tiers.lines.map(({ besides, inExtra, ...line }) => ({ ...line, besides: besides.map(ids), inExtra: inExtra.map(ids) }));
+  return tiers.lines.map(({ besides, inExtra, inGrave, reach, ...line }) => ({
+    ...line,
+    besides: besides.map(ids),
+    inExtra: inExtra.map(ids),
+    inGrave: inGrave.map(ids),
+    reach: reach && { zone: reach.zone, ids: ids(reach.group), count: reach.count }
+  }));
 }
 function boardOrder(a, b3) {
   return b3.value - a.value || a.steps.length - b3.steps.length;
 }
 var zoneKey = (card) => `${card.code}@${card.location}`;
+var ATTRIBUTE_NAMES = { 1: "\u5730", 2: "\u6C34", 4: "\u708E", 8: "\u98CE", 16: "\u5149", 32: "\u6697", 64: "\u795E" };
 function combinations(items2, size) {
   const result = [];
   const seen = /* @__PURE__ */ new Set();
@@ -3101,6 +3132,7 @@ function createSearcher(engine, setup, cardOf, lines, saveLimit, stopped = () =>
     return card ? card.cn || card.en : String(code);
   };
   const inHandValue = new Set(lines.filter((line) => line.where === "hand").map((line) => line.card.id));
+  const valuedIds = new Set(lines.map((line) => line.card.id));
   const isHandTrap = (code) => {
     const card = cardOf(code);
     return card !== void 0 && inHandValue.has(card.id);
@@ -3131,7 +3163,11 @@ function createSearcher(engine, setup, cardOf, lines, saveLimit, stopped = () =>
         add(message.summons, oe.SELECT_SUMMON, "\u901A\u53EC", (item) => String(item.code));
         add(message.special_summons, oe.SELECT_SPECIAL_SUMMON, "\u7279\u53EC", (item) => String(item.code));
         add(message.activates, oe.SELECT_ACTIVATE, "\u53D1\u52A8", (item) => `${item.code}:${item.description}`);
-        return options;
+        const priority = (option) => {
+          const item = [message.summons, message.special_summons, message.activates][option.response.action === oe.SELECT_ACTIVATE ? 2 : option.response.action === oe.SELECT_SPECIAL_SUMMON ? 1 : 0][option.response.index];
+          return valuedIds.has(cardOf(item.code)?.id ?? -1) ? 0 : 1;
+        };
+        return options.map((option, index) => ({ option, index })).sort((a, b3) => priority(a.option) - priority(b3.option) || a.index - b3.index).map((entry) => entry.option);
       }
       case z.SELECT_CHAIN: {
         const options = message.forced ? [] : [{ label: "", response: { type: T.SELECT_CHAIN, index: null } }];
@@ -3199,6 +3235,18 @@ function createSearcher(engine, setup, cardOf, lines, saveLimit, stopped = () =>
       case z.SORT_CARD:
       case z.SORT_CHAIN:
         return [{ label: "", response: { type: T.SORT_CARD, order: null } }];
+      case z.ANNOUNCE_ATTRIB: {
+        const bits2 = [1, 2, 4, 8, 16, 32, 64].filter((bit) => Number(message.available) & bit);
+        if (message.count > 1) return [{ label: "", response: { type: T.ANNOUNCE_ATTRIB, attributes: bits2.slice(0, message.count) } }];
+        return bits2.map((bit) => ({ label: `\u5BA3\u8A00${ATTRIBUTE_NAMES[bit]}\u5C5E\u6027`, response: { type: T.ANNOUNCE_ATTRIB, attributes: [bit] } }));
+      }
+      case z.ANNOUNCE_RACE: {
+        const races = [];
+        for (let bit = 1n; races.length < message.count && bit <= BigInt(message.available); bit <<= 1n) if (BigInt(message.available) & bit) races.push(bit);
+        return [{ label: "", response: { type: T.ANNOUNCE_RACE, races } }];
+      }
+      case z.ANNOUNCE_NUMBER:
+        return message.options.slice(0, 12).map((value) => ({ label: `\u5BA3\u8A00 ${value}`, response: { type: T.ANNOUNCE_NUMBER, value: Number(value) } }));
     }
     throw new Error(`\u89C4\u5219\u5F15\u64CE\u8981\u4E00\u79CD\u8FD8\u6CA1\u5904\u7406\u7684\u9009\u62E9\uFF08${message.type}\uFF09`);
   };
@@ -3223,6 +3271,7 @@ function createSearcher(engine, setup, cardOf, lines, saveLimit, stopped = () =>
         engine.respond(duel, options[0].response);
         continue;
       }
+      if (options.length === 0 && message.type !== z.SELECT_IDLECMD) return null;
       return { message, options };
     }
   };
@@ -3273,22 +3322,59 @@ function createSearcher(engine, setup, cardOf, lines, saveLimit, stopped = () =>
       }
     }
     const counted = [];
+    const countedNames = /* @__PURE__ */ new Set();
     const onBoard = [...field, ...sets];
+    const deckCards = known(engine.cards(duel, L.DECK));
+    const zones = { grave, deck: deckCards, extra, hand: notDrawn, field: onBoard };
+    const conditionsHold = (line, card) => {
+      const others = [...onBoard, ...hand].filter((other) => other !== card);
+      return line.besides.every((ids) => others.some((other) => ids.includes(other.id))) && line.inExtra.every((ids) => extra.some((other) => ids.includes(other.id))) && line.inGrave.every((ids) => grave.some((other) => ids.includes(other.id)));
+    };
+    const worth = (card, line, reached, depth, names3) => {
+      const chain = [];
+      let value2 = 0;
+      if (line.level >= 0 && !(reached && line.timing === "own") && !(!reached && line.timing === "summon")) {
+        value2 = line.timing === "own" ? OWN_TURN_VALUE : LEVELS[line.level].weight * line.uses;
+      }
+      if (line.reach && depth < REACH_DEPTH) {
+        for (let picked = 0; picked < line.reach.count; picked++) {
+          let best = null;
+          const tried = /* @__PURE__ */ new Set();
+          for (const other of zones[line.reach.zone]) {
+            if (other === card || names3.has(other.id) || tried.has(other.id) || !line.reach.ids.includes(other.id)) continue;
+            tried.add(other.id);
+            const otherLine = lines.find((candidate) => candidate.card.id === other.id);
+            if (!otherLine || !conditionsHold(otherLine, other)) continue;
+            const trial = new Set(names3);
+            trial.add(other.id);
+            const result = worth(other, otherLine, true, depth + 1, trial);
+            if (!best || result.value > best.value) best = { other, line: otherLine, trial, ...result };
+          }
+          if (!best || best.value <= 0) break;
+          best.trial.forEach((id) => names3.add(id));
+          const own = best.value - best.chain.reduce((sum, item) => sum + item.value, 0);
+          chain.push({ card: best.other, level: best.line.level, uses: best.line.uses, place: "\u5E26\u51FA", value: own, ownTurn: false, via: card }, ...best.chain);
+          value2 += best.value;
+        }
+      }
+      return { value: value2, chain };
+    };
     const consider = (cards, place, wheres) => {
       for (const card of new Set(cards)) {
         const line = lines.find((candidate) => candidate.card.id === card.id);
-        if (!line || !wheres.includes(line.where)) continue;
-        if (line.timing === "summon") continue;
-        const others = [...onBoard, ...hand].filter((other) => other !== card);
-        if (!line.besides.every((ids) => others.some((other) => ids.includes(other.id)))) continue;
-        if (!line.inExtra.every((ids) => extra.some((other) => ids.includes(other.id)))) continue;
-        const value2 = line.timing === "own" ? OWN_TURN_VALUE : LEVELS[line.level].weight * line.uses;
-        counted.push({ card, level: line.level, uses: line.uses, place, value: value2, ownTurn: line.timing === "own" });
+        if (!line || !wheres.includes(line.where) || countedNames.has(card.id)) continue;
+        if (!conditionsHold(line, card)) continue;
+        countedNames.add(card.id);
+        const result = worth(card, line, false, 0, countedNames);
+        const own = result.value - result.chain.reduce((sum, item) => sum + item.value, 0);
+        if (own > 0 || result.chain.length > 0) {
+          counted.push({ card, level: line.level, uses: line.uses, place, value: own, ownTurn: line.timing === "own" }, ...result.chain);
+        }
       }
     };
-    consider(onBoard, "\u573A\u4E0A", ["field", "any"]);
+    consider(onBoard, "\u573A\u4E0A", ["field", "any", "fieldOrHand"]);
     consider(grave, "\u5893\u5730", ["grave", "any"]);
-    consider(notDrawn, "\u624B\u91CC", ["hand"]);
+    consider(notDrawn, "\u624B\u91CC", ["hand", "fieldOrHand"]);
     const value = counted.reduce((sum, item) => sum + item.value, 0);
     return { value, field, sets, counted, steps };
   };
@@ -3411,6 +3497,14 @@ function summarize(firsts, results, taskCounts, extraBoards, states, seconds) {
   });
   return { boards: [...best.values()].sort(boardOrder), branches, states, seconds };
 }
+function planHand(engine, setup, cardOf, lines, nodeLimit = 3e4) {
+  const started = performance.now();
+  const searcher = createSearcher(engine, setup, cardOf, lines, 64);
+  const firsts = searcher.firstChoices();
+  const share = Math.floor(nodeLimit / Math.max(firsts.length, 1));
+  const results = firsts.map((_, first) => ({ first, explored: searcher.explore([first], share) }));
+  return summarize(firsts, results, firsts.map(() => 1), [], searcher.states(), (performance.now() - started) / 1e3);
+}
 if (!isMainThread && workerData?.role === "plan-worker") void runWorker(workerData);
 async function runWorker({ setup, cards, lines, saveLimit, shared, seen }) {
   const byCode = new Map(cards);
@@ -3511,7 +3605,7 @@ async function planText(input, handText, tiersText, limits) {
   });
   const tiers = parseTiers(tiersText, deck, cards);
   const byCode = /* @__PURE__ */ new Map();
-  for (const card of deckCards) for (const id of [code(card), card.id, ...card.altIds]) byCode.set(id, card);
+  for (const card of [...cards, ...deckCards]) for (const id of [code(card), card.id, ...card.altIds]) byCode.set(id, card);
   const engine = await startEngine(data);
   const setup = { hand: hand.map(code), main: pile.map(code), extra: deck.extra.flatMap((entry) => Array(entry.count).fill(code(entry.card))) };
   const lines = resolveTiers(tiers, deckCards, archetypesOf(cards));
@@ -3529,6 +3623,7 @@ export {
   boardOrder,
   SEEN_SLOTS,
   sharedSeen,
+  planHand,
   planParallel,
   planText,
   lookup,
