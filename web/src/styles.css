@@ -115,3 +115,13 @@ footer { text-align: center; padding: 24px; font-size: 12px; }
 .detail { display: grid; grid-template-columns: 180px 1fr; gap: 18px; }
 .detail .art { width: 180px; border-radius: 8px; }
 @media (max-width: 700px) { .detail { grid-template-columns: 1fr; } .bar-row { grid-template-columns: 1fr; } header { gap: 10px; padding: 10px 12px; flex-wrap: wrap; } }
+
+/* library and workspace */
+.decks { list-style: none; padding: 0; }
+.decks li { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line-soft); }
+.deck-open { background: transparent; border: none; color: var(--gold); font-size: 16px; padding: 4px 0; text-align: left; flex: 1; }
+.deck-open:hover { text-decoration: underline; filter: none; }
+button.small { padding: 4px 10px; font-size: 12px; }
+.workspace-head { max-width: 1200px; margin: 0 auto; padding: 14px 16px 0; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.workspace-head h2 { margin: 0; color: var(--gold); }
+.workspace-head .tabs { margin: 0; }

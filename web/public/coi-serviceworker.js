@@ -1,5 +1,7 @@
 /*! coi-serviceworker v0.1.7 - Guido Zuidhof and contributors, licensed under MIT */
-let coepCredentialless = false;
+// Patched for this site: always credentialless, so card artwork from other origins loads. The original waited for
+// a message from the page, which arrives after the page's own response was already served with require-corp.
+let coepCredentialless = true;
 if (typeof window === 'undefined') {
     self.addEventListener("install", () => self.skipWaiting());
     self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
@@ -24,6 +26,11 @@ if (typeof window === 'undefined') {
     self.addEventListener("fetch", function (event) {
         const r = event.request;
         if (r.cache === "only-if-cached" && r.mode !== "same-origin") {
+            return;
+        }
+        // Patched for this site: cross-origin images (card artwork) go straight to the browser, which loads them
+        // without credentials under COEP credentialless; routing them through here made them fail.
+        if (r.mode === "no-cors" && new URL(r.url).origin !== self.location.origin) {
             return;
         }
 

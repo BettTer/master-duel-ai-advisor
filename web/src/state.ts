@@ -3,10 +3,23 @@ import type { Deck } from "../../src/deck.ts";
 import type { Card } from "../../src/merge.ts";
 import { LEVELS } from "../../src/search.ts";
 
-export type Page = "deck" | "hand" | "route" | "profile" | "lookup";
-export const PAGES: { id: Page; label: string }[] = [
-  { id: "deck", label: "卡组" }, { id: "hand", label: "起手" }, { id: "route", label: "路线图" }, { id: "profile", label: "全景" }, { id: "lookup", label: "查卡" },
+export type Sub = "overview" | "hand" | "route" | "profile";
+export const SUBS: { id: Sub; label: string }[] = [
+  { id: "overview", label: "卡表与检查" }, { id: "hand", label: "起手" }, { id: "route", label: "路线图" }, { id: "profile", label: "全景" },
 ];
+/** Where the app is: the library, the lookup, or one deck's workspace. */
+export type Route = { page: "library" } | { page: "lookup" } | { page: "deck"; id: string; sub: Sub };
+
+export function parseRoute(hash: string): Route {
+  const match = hash.match(/^#\/deck\/([^/]+)\/?(overview|hand|route|profile)?$/);
+  if (match) return { page: "deck", id: match[1], sub: (match[2] as Sub) ?? "overview" };
+  if (hash === "#/lookup") return { page: "lookup" };
+  return { page: "library" };
+}
+
+export function routeHash(route: Route): string {
+  return route.page === "deck" ? `#/deck/${route.id}/${route.sub}` : route.page === "lookup" ? "#/lookup" : "#/decks";
+}
 
 /** A YDKE string for a deck, so the URL can carry it. */
 export function encodeYdke(deck: Deck): string {
@@ -20,19 +33,20 @@ export function encodeYdke(deck: Deck): string {
   return `ydke://${section(deck.main)}!${section(deck.extra)}!${section(deck.side)}!`;
 }
 
-export function readHash(): { deck?: string; hand?: number[] } {
-  const params = new URLSearchParams(location.hash.slice(1));
+/** A shared link carries the deck itself and a hand: #deck=<ydke>&hand=<passcodes>. */
+export function readShared(hash: string): { deck?: string; hand?: number[] } {
+  if (!hash.startsWith("#deck=")) return {};
+  const params = new URLSearchParams(hash.slice(1));
   const deck = params.get("deck") ?? undefined;
   const hand = params.get("hand")?.split(",").map(Number).filter((id) => id > 0);
   return { deck, hand: hand?.length ? hand : undefined };
 }
 
-export function writeHash(deck: Deck | null, hand: Card[]): void {
+export function shareLink(deck: Deck, hand: Card[]): string {
   const params = new URLSearchParams();
-  if (deck) params.set("deck", encodeYdke(deck));
+  params.set("deck", encodeYdke(deck));
   if (hand.length > 0) params.set("hand", hand.map((card) => card.id).join(","));
-  const next = params.toString() ? `#${params}` : "";
-  if (next !== location.hash) history.replaceState(null, "", next || location.pathname);
+  return `${location.origin}${location.pathname}#${params}`;
 }
 
 /** Colors for endpoint levels, by index into LEVELS. */

@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { checkDeck, readDeck, type Deck } from "../../../src/deck.ts";
+import { checkDeck, type Deck } from "../../../src/deck.ts";
 import { analyzeLocks, type LockPair, type LockReport } from "../../../src/locks.ts";
 import type { Card } from "../../../src/merge.ts";
 import { archetypeLookup, zhKinds } from "../../../src/query.ts";
@@ -55,72 +54,42 @@ export function DeckWall({ deck, data, onPick, images }: { deck: Deck; data: Car
   );
 }
 
-export function DeckPage({ data, deck, analysis, onDeck, images }: {
-  data: CardData; deck: Deck | null; analysis: DeckAnalysis | null; onDeck: (deck: Deck, analysis: DeckAnalysis) => void; images: boolean;
-}) {
-  const [text, setText] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  async function load() {
-    setBusy(true);
-    setError("");
-    try {
-      const read = await readDeck(text, data.cards);
-      onDeck(read, analyzeDeck(read, data));
-    } catch (failure) {
-      setError(String(failure instanceof Error ? failure.message : failure));
-    } finally {
-      setBusy(false);
-    }
-  }
+export function DeckView({ data, deck, analysis, images }: { data: CardData; deck: Deck; analysis: DeckAnalysis; images: boolean }) {
   const lockName = (lock: LockReport["lock"]) => `「${cardName(lock.card)}」${lock.effect}`;
   return (
     <div className="page">
       <section className="panel">
-        <h2>读入卡组</h2>
-        <p className="muted">粘贴 YDKE 字符串、.ydk 的内容，或者一行一张的卡表（`3 灰流丽`、`Ash Blossom x3`）。Master Duel 的卡组可以通过官方卡片数据库导出 YDKE。</p>
-        <textarea rows={5} value={text} onChange={(event) => setText(event.target.value)} placeholder="ydke://…" />
-        <div className="row">
-          <button onClick={load} disabled={busy || !text.trim()}>读入</button>
-          {error && <span className="error">{error}</span>}
-        </div>
+        <h2>卡表 <span className="muted">主 {deck.main.reduce((sum, entry) => sum + entry.count, 0)} · 额外 {deck.extra.reduce((sum, entry) => sum + entry.count, 0)}</span></h2>
+        <DeckWall deck={deck} data={data} images={images} />
       </section>
-      {deck && analysis && (
-        <>
-          <section className="panel">
-            <h2>{deck.name || "卡组"} <span className="muted">主 {deck.main.reduce((sum, entry) => sum + entry.count, 0)} · 额外 {deck.extra.reduce((sum, entry) => sum + entry.count, 0)}{deck.source ? ` · 来源 ${deck.source}` : ""}</span></h2>
-            <DeckWall deck={deck} data={data} images={images} />
-          </section>
-          <section className="panel">
-            <h2>检查</h2>
-            {analysis.issues.length === 0 ? <p className="ok">没有发现张数、禁限或实装方面的问题。</p> : <ul className="issues">{analysis.issues.map((issue, index) => <li key={index}>{issue}</li>)}</ul>}
-            {deck.guessed.length > 0 && <p className="muted">按部分卡名认的，请确认：{deck.guessed.join("；")}</p>}
-            {deck.unknown.length > 0 && <p className="error">没认出来：{deck.unknown.join("；")}</p>}
-            {analysis.locks.locks.length > 0 && (
+      <section className="panel">
+        <h2>检查</h2>
+        {analysis.issues.length === 0 ? <p className="ok">没有发现张数、禁限或实装方面的问题。</p> : <ul className="issues">{analysis.issues.map((issue, index) => <li key={index}>{issue}</li>)}</ul>}
+        {deck.guessed.length > 0 && <p className="muted">按部分卡名认的，请确认：{deck.guessed.join("；")}</p>}
+        {deck.unknown.length > 0 && <p className="error">没认出来：{deck.unknown.join("；")}</p>}
+        {analysis.locks.locks.length > 0 && (
+          <>
+            <h3>额外卡组的锁</h3>
+            <ul>{analysis.locks.locks.map((report, index) => (
+              <li key={index}><b>{lockName(report.lock)}</b>：{report.lock.text}{report.blocked.length > 0 && <span className="muted"> → 额外里出不来：{report.blocked.map(cardName).join("、")}</span>}</li>
+            ))}</ul>
+            {analysis.locks.pairs.length > 0 && (
               <>
-                <h3>额外卡组的锁</h3>
-                <ul>{analysis.locks.locks.map((report, index) => (
-                  <li key={index}><b>{lockName(report.lock)}</b>：{report.lock.text}{report.blocked.length > 0 && <span className="muted"> → 额外里出不来：{report.blocked.map(cardName).join("、")}</span>}</li>
+                <h3>同一回合一起用</h3>
+                <ul>{analysis.locks.pairs.map((pair, index) => (
+                  <li key={index}>{lockName(pair.first)} ＋ {lockName(pair.second)}：{pair.remaining.length === 0 ? <b className="error">额外卡组一只都出不来</b> : <>额外只剩 {pair.remaining.map(cardName).join("、")}</>}</li>
                 ))}</ul>
-                {analysis.locks.pairs.length > 0 && (
-                  <>
-                    <h3>同一回合一起用</h3>
-                    <ul>{analysis.locks.pairs.map((pair, index) => (
-                      <li key={index}>{lockName(pair.first)} ＋ {lockName(pair.second)}：{pair.remaining.length === 0 ? <b className="error">额外卡组一只都出不来</b> : <>额外只剩 {pair.remaining.map(cardName).join("、")}</>}</li>
-                    ))}</ul>
-                  </>
-                )}
               </>
             )}
-            {analysis.missing.length > 0 && (
-              <>
-                <h3>可能没有目标 <span className="muted">按卡名和字段判断，请确认</span></h3>
-                <ul>{analysis.missing.map((reference, index) => <li key={index}><b>「{cardName(reference.card)}」{reference.effect}</b>：{reference.text}</li>)}</ul>
-              </>
-            )}
-          </section>
-        </>
-      )}
+          </>
+        )}
+        {analysis.missing.length > 0 && (
+          <>
+            <h3>可能没有目标 <span className="muted">按卡名和字段判断，请确认</span></h3>
+            <ul>{analysis.missing.map((reference, index) => <li key={index}><b>「{cardName(reference.card)}」{reference.effect}</b>：{reference.text}</li>)}</ul>
+          </>
+        )}
+      </section>
     </div>
   );
 }
