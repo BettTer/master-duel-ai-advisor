@@ -5,6 +5,7 @@ import { SECTIONS, type Deck, type Section } from "./deck.ts";
 import type { Lock, LockPair, LockReport } from "./locks.ts";
 import { groupMatches, type Group, type Odds, type OddsReport, type Rules } from "./odds.ts";
 import { DRAW_PENALTY, LEVELS, type Board, type PlanResult } from "./plan.ts";
+import type { HandResult, Profile } from "./profile.ts";
 import type { Reference } from "./refs.ts";
 import { findCards, inMasterDuel, zhKinds } from "./query.ts";
 
@@ -311,6 +312,71 @@ export function formatPlan(hand: Card[], result: PlanResult, problems: string[],
   }
   const weights = LEVELS.map((level) => `${level.name} ${level.weight}`).join("、");
   lines.push(`共 ${result.states} 个不同局面，${result.seconds.toFixed(1)} 秒。价值＝对手回合能用的打断按级别加权（${weights}），乘次数；只在自己回合用的算 1。`);
+  const notes = [...problems];
+  if (missing.length > 0) notes.push(`规则引擎还没有这些卡的数据或脚本，结果可能不对：${missing.map((card) => `「${card.cn || card.en}」`).join("、")}`);
+  if (missingScripts.length > 0) notes.push(`引擎要了但没找到的脚本：${missingScripts.join("、")}`);
+  if (notes.length > 0) lines.push("", "请检查：", ...notes.map((note) => `  - ${note}`));
+  return lines.join("\n");
+}
+
+const mean = (hands: HandResult[], pick: (hand: HandResult) => number) => {
+  const weight = hands.reduce((sum, hand) => sum + hand.weight, 0);
+  return weight === 0 ? 0 : hands.reduce((sum, hand) => sum + pick(hand) * hand.weight, 0) / weight;
+};
+const handValue = (hand: HandResult) => hand.board?.value ?? 0;
+/** The best level the hand puts on the board or brings out on the opponent's turn; -1 when only hand traps are left. */
+const bestLevel = (hand: HandResult) => Math.min(...(hand.board?.counted.filter((item) => item.place !== "手里").map((item) => item.level) ?? []), 99);
+const handNames = (hand: HandResult) => hand.cards.map((card) => card.cn || card.en).join("、");
+
+function profileLines(profile: Profile, base?: Profile): string[] {
+  const total = profile.hands.reduce((sum, hand) => sum + hand.weight, 0);
+  const share = (test: (hand: HandResult) => boolean) => mean(profile.hands, (hand) => (test(hand) ? 1 : 0));
+  const percent = (value: number) => `${(value * 100).toFixed(0)}%`;
+  const diff = (value: number, before?: number, digits = 1) => before === undefined ? "" : `（${value - before >= 0 ? "+" : "−"}${Math.abs(value - before).toFixed(digits)}）`;
+  const average = mean(profile.hands, handValue);
+  const lines = [`平均价值 ${average.toFixed(1)}${diff(average, base && mean(base.hands, handValue))}（${profile.samples} 手抽样，${profile.distinct} 种不同起手）`];
+  const buckets: [string, (hand: HandResult) => boolean][] = [
+    ["做出第一级以上的康", (hand) => bestLevel(hand) <= 1],
+    ["最好只到第二级", (hand) => bestLevel(hand) >= 2 && bestLevel(hand) <= 5],
+    ["只有处理或保护", (hand) => bestLevel(hand) >= 6 && bestLevel(hand) < 99],
+    ["只剩手坑，场上什么都没有", (hand) => bestLevel(hand) === 99],
+  ];
+  for (const [label, test] of buckets) {
+    const value = share(test);
+    const before = base ? mean(base.hands, (hand) => (test(hand) ? 1 : 0)) : undefined;
+    lines.push(`  ${label}：${percent(value)}${before === undefined ? "" : `（改前 ${percent(before)}）`}`);
+  }
+  const boards = new Map<string, number>();
+  for (const hand of profile.hands) if (hand.board) boards.set(fieldText(hand.board), (boards.get(fieldText(hand.board)) ?? 0) + hand.weight);
+  const top = [...boards].sort((a, b) => b[1] - a[1]).slice(0, 5);
+  if (top.length > 0) lines.push("  最常见的终场：", ...top.map(([board, count]) => `    ${percent(count / total)} ${board}`));
+  const worst = [...profile.hands].sort((a, b) => handValue(a) - handValue(b)).slice(0, 5);
+  lines.push("  最差的起手：", ...worst.map((hand) => `    [${handValue(hand)}] ${handNames(hand)}${hand.board ? ` → ${fieldText(hand.board)}` : ""}`));
+  return lines;
+}
+
+/** What each card adds: the average value of hands holding it against hands without it. */
+function contributionLines(profile: Profile): string[] {
+  const byCard = new Map<number, { card: Card; with: HandResult[]; without: HandResult[] }>();
+  const cards = new Map<number, Card>();
+  for (const hand of profile.hands) for (const card of hand.cards) cards.set(card.id, card);
+  for (const [id, card] of cards) {
+    byCard.set(id, { card, with: profile.hands.filter((hand) => hand.cards.some((other) => other.id === id)), without: profile.hands.filter((hand) => !hand.cards.some((other) => other.id === id)) });
+  }
+  const rows = [...byCard.values()].map(({ card, with: holding, without }) => ({
+    card, count: holding.reduce((sum, hand) => sum + hand.weight, 0),
+    delta: mean(holding, handValue) - mean(without, handValue),
+    brick: mean(holding, (hand) => (bestLevel(hand) === 99 ? 1 : 0)),
+  })).filter((row) => row.count >= 3).sort((a, b) => b.delta - a.delta);
+  return ["  每张卡的贡献（起手里有它时的平均价值，减去没有它时的；至少 3 手样本）：",
+    ...rows.map((row) => `    ${row.delta >= 0 ? "+" : "−"}${Math.abs(row.delta).toFixed(1)}  「${row.card.cn || row.card.en}」（${row.count} 手，其中 ${(row.brick * 100).toFixed(0)}% 只剩手坑）`)];
+}
+
+export function formatProfile(profile: Profile, changed: Profile | null, problems: string[], missing: Card[], missingScripts: string[]): string {
+  const lines = [`卡组全景：${profile.deckLabel}（先手，每手最多搜 ${profile.hands[0]?.seconds.toFixed(0) ?? "?"} 秒，对手不打断）`, "", ...profileLines(profile), "", ...contributionLines(profile)];
+  if (changed) lines.push("", `改成 ${changed.deckLabel} 以后：`, ...profileLines(changed, profile));
+  const weights = LEVELS.map((level) => `${level.name} ${level.weight}`).join("、");
+  lines.push("", `共 ${(profile.seconds + (changed?.seconds ?? 0)).toFixed(0)} 秒。价值＝对手回合能用的打断按级别加权（${weights}），乘次数；只在自己回合用的算 1。抽样的平均值大约有 ±1 的误差。`);
   const notes = [...problems];
   if (missing.length > 0) notes.push(`规则引擎还没有这些卡的数据或脚本，结果可能不对：${missing.map((card) => `「${card.cn || card.en}」`).join("、")}`);
   if (missingScripts.length > 0) notes.push(`引擎要了但没找到的脚本：${missingScripts.join("、")}`);

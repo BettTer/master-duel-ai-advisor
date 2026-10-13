@@ -13,6 +13,7 @@ const INSTRUCTIONS = `Verified Yu-Gi-Oh! Master Duel data for deckbuilding advic
 - When the user shares a deck (a deck URL from the official card database db.yugioh-card.com, a YDKE string, a .ydk file or a card list), call import_deck first and mention the problems and Extra Deck lock conflicts it reports. Its list of effects that may have no target (可能没有目标) is a hint from names and archetype codes: confirm each with lookup_cards before calling a card dead.
 - For consistency questions (how often the deck bricks, 卡手率, whether a change helps), call hand_odds. Write its rules from the card text, never from memory: for each Main Deck card that can help start plays, what it needs in the opening hand (another card, a discard, the Normal Summon, a state such as a LIGHT or DARK monster in the GY) and what it gives (cards it adds from the Deck, states it creates, and 能动 when the deck can go on from there to a usable end board). A card that only adds a body gives a state for other lines to need. Describe required or searched cards the way the card text does instead of listing names, so the tool finds every match. Always show the user the rules with the numbers and let them correct the rules.
 - For what a given opening hand can do (最大场, 起手怎么展开, which end board), call plan_hand. First write the deck's endpoints from the card text, one line per card: its level (第0级 cannot be responded to, 第一级 negates anything, 1.5级 Maxx "C", 第二级 a conditional negate, 2.5级 a very narrow one, 软康 a tax or lock, 第三级 removal, 保护), and 回合外 → <zone> <cards> for a card whose value is what it brings out on the opponent's turn, such as Spright Elf summoning a Level 2 from the GY. Follow such chains as far as they go. Show the user the endpoint list with the result and present the route exactly as the engine found it.
+- For what the deck does on average (平均能做什么场, which cards carry it, whether a change helps), call profile_deck with the same endpoint list; it samples hands and takes minutes, so say so first. Use hand_odds for how often the deck can start at all.
 - Call lookup_cards for every card your advice depends on and quote the sentence that matters. Do not describe effects from memory.
 - Use only the Master Duel banlist the tools report. TCG and OCG lists do not apply. When results show an announced change that is not in effect yet, mention it.
 - When the user needs a card for a slot, call search_cards with the constraints first, show the realistic candidates with rarity and banlist status, then recommend. Card text phrases work best in Chinese, where wording is more uniform; when completeness matters, also search once without the phrase.
@@ -126,6 +127,25 @@ server.registerTool(
   async ({ deck, hand, tiers, seconds }) => {
     const { planText } = await import("./plan.ts"); // the rules engine is loaded only for this tool
     return text(await planText(deck, hand, tiers, { nodes: 1_000_000, seconds: seconds ?? 45 }));
+  },
+);
+
+server.registerTool(
+  "profile_deck",
+  {
+    description: "What a deck makes over its opening hands, going first: hands are sampled by their real probability and each is planned on the rules engine with a short budget. Reports the average board value, how often the deck ends with a first-level negate, only a weaker board, or only hand traps, the most common end boards, the worst hands, and what each card adds (average value with it minus without it). Takes the same endpoint list as plan_hand. 100 hands at 5 seconds each take about 8 minutes; results are cached per deck and endpoint list, so a `change` comparison or a rerun only plans new hands.",
+    inputSchema: z.object({
+      deck: z.string().min(1).describe("Deck URL, YDKE string, .ydk contents or a card list"),
+      tiers: z.string().min(1).describe("The endpoint list, one line per card, as for plan_hand"),
+      hands: z.number().int().min(10).max(500).optional().describe("Hands to sample, default 100"),
+      seconds: z.number().int().min(2).max(60).optional().describe("Search time per hand, default 5"),
+      change: z.string().optional().describe("Compare with a changed Main Deck, e.g. \"-1 增殖的G, +1 增援\""),
+    }),
+    annotations: { readOnlyHint: true },
+  },
+  async ({ deck, tiers, hands, seconds, change }) => {
+    const { profileText } = await import("./profile.ts");
+    return text(await profileText(deck, tiers, { hands: hands ?? 100, seconds: seconds ?? 5, change }));
   },
 );
 

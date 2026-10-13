@@ -1557,6 +1557,7 @@ async function startEngine(data) {
       }
     },
     respond: (duel, response) => lib.duelSetResponse(duel, response),
+    destroy: (duel) => lib.destroyDuel(duel),
     cards: (duel, location) => lib.duelQueryLocation(duel, { controller: 0, location, flags: 3 }).filter(Boolean).filter((info) => info.code).map((info) => ({ code: info.code, position: info.position })),
     save: (into) => {
       const memoryNow = new Uint8Array(heap.buffer);
@@ -2693,6 +2694,68 @@ function formatPlan(hand, result, problems, missing, missingScripts) {
   if (notes.length > 0) lines.push("", "\u8BF7\u68C0\u67E5\uFF1A", ...notes.map((note) => `  - ${note}`));
   return lines.join("\n");
 }
+var mean = (hands, pick) => {
+  const weight = hands.reduce((sum, hand) => sum + hand.weight, 0);
+  return weight === 0 ? 0 : hands.reduce((sum, hand) => sum + pick(hand) * hand.weight, 0) / weight;
+};
+var handValue = (hand) => hand.board?.value ?? 0;
+var bestLevel = (hand) => Math.min(...hand.board?.counted.filter((item) => item.place !== "\u624B\u91CC").map((item) => item.level) ?? [], 99);
+var handNames = (hand) => hand.cards.map((card) => card.cn || card.en).join("\u3001");
+function profileLines(profile, base) {
+  const total = profile.hands.reduce((sum, hand) => sum + hand.weight, 0);
+  const share = (test) => mean(profile.hands, (hand) => test(hand) ? 1 : 0);
+  const percent2 = (value) => `${(value * 100).toFixed(0)}%`;
+  const diff = (value, before, digits = 1) => before === void 0 ? "" : `\uFF08${value - before >= 0 ? "+" : "\u2212"}${Math.abs(value - before).toFixed(digits)}\uFF09`;
+  const average = mean(profile.hands, handValue);
+  const lines = [`\u5E73\u5747\u4EF7\u503C ${average.toFixed(1)}${diff(average, base && mean(base.hands, handValue))}\uFF08${profile.samples} \u624B\u62BD\u6837\uFF0C${profile.distinct} \u79CD\u4E0D\u540C\u8D77\u624B\uFF09`];
+  const buckets = [
+    ["\u505A\u51FA\u7B2C\u4E00\u7EA7\u4EE5\u4E0A\u7684\u5EB7", (hand) => bestLevel(hand) <= 1],
+    ["\u6700\u597D\u53EA\u5230\u7B2C\u4E8C\u7EA7", (hand) => bestLevel(hand) >= 2 && bestLevel(hand) <= 5],
+    ["\u53EA\u6709\u5904\u7406\u6216\u4FDD\u62A4", (hand) => bestLevel(hand) >= 6 && bestLevel(hand) < 99],
+    ["\u53EA\u5269\u624B\u5751\uFF0C\u573A\u4E0A\u4EC0\u4E48\u90FD\u6CA1\u6709", (hand) => bestLevel(hand) === 99]
+  ];
+  for (const [label, test] of buckets) {
+    const value = share(test);
+    const before = base ? mean(base.hands, (hand) => test(hand) ? 1 : 0) : void 0;
+    lines.push(`  ${label}\uFF1A${percent2(value)}${before === void 0 ? "" : `\uFF08\u6539\u524D ${percent2(before)}\uFF09`}`);
+  }
+  const boards = /* @__PURE__ */ new Map();
+  for (const hand of profile.hands) if (hand.board) boards.set(fieldText(hand.board), (boards.get(fieldText(hand.board)) ?? 0) + hand.weight);
+  const top = [...boards].sort((a, b3) => b3[1] - a[1]).slice(0, 5);
+  if (top.length > 0) lines.push("  \u6700\u5E38\u89C1\u7684\u7EC8\u573A\uFF1A", ...top.map(([board, count]) => `    ${percent2(count / total)} ${board}`));
+  const worst = [...profile.hands].sort((a, b3) => handValue(a) - handValue(b3)).slice(0, 5);
+  lines.push("  \u6700\u5DEE\u7684\u8D77\u624B\uFF1A", ...worst.map((hand) => `    [${handValue(hand)}] ${handNames(hand)}${hand.board ? ` \u2192 ${fieldText(hand.board)}` : ""}`));
+  return lines;
+}
+function contributionLines(profile) {
+  const byCard = /* @__PURE__ */ new Map();
+  const cards = /* @__PURE__ */ new Map();
+  for (const hand of profile.hands) for (const card of hand.cards) cards.set(card.id, card);
+  for (const [id, card] of cards) {
+    byCard.set(id, { card, with: profile.hands.filter((hand) => hand.cards.some((other) => other.id === id)), without: profile.hands.filter((hand) => !hand.cards.some((other) => other.id === id)) });
+  }
+  const rows = [...byCard.values()].map(({ card, with: holding, without }) => ({
+    card,
+    count: holding.reduce((sum, hand) => sum + hand.weight, 0),
+    delta: mean(holding, handValue) - mean(without, handValue),
+    brick: mean(holding, (hand) => bestLevel(hand) === 99 ? 1 : 0)
+  })).filter((row) => row.count >= 3).sort((a, b3) => b3.delta - a.delta);
+  return [
+    "  \u6BCF\u5F20\u5361\u7684\u8D21\u732E\uFF08\u8D77\u624B\u91CC\u6709\u5B83\u65F6\u7684\u5E73\u5747\u4EF7\u503C\uFF0C\u51CF\u53BB\u6CA1\u6709\u5B83\u65F6\u7684\uFF1B\u81F3\u5C11 3 \u624B\u6837\u672C\uFF09\uFF1A",
+    ...rows.map((row) => `    ${row.delta >= 0 ? "+" : "\u2212"}${Math.abs(row.delta).toFixed(1)}  \u300C${row.card.cn || row.card.en}\u300D\uFF08${row.count} \u624B\uFF0C\u5176\u4E2D ${(row.brick * 100).toFixed(0)}% \u53EA\u5269\u624B\u5751\uFF09`)
+  ];
+}
+function formatProfile(profile, changed, problems, missing, missingScripts) {
+  const lines = [`\u5361\u7EC4\u5168\u666F\uFF1A${profile.deckLabel}\uFF08\u5148\u624B\uFF0C\u6BCF\u624B\u6700\u591A\u641C ${profile.hands[0]?.seconds.toFixed(0) ?? "?"} \u79D2\uFF0C\u5BF9\u624B\u4E0D\u6253\u65AD\uFF09`, "", ...profileLines(profile), "", ...contributionLines(profile)];
+  if (changed) lines.push("", `\u6539\u6210 ${changed.deckLabel} \u4EE5\u540E\uFF1A`, ...profileLines(changed, profile));
+  const weights = LEVELS.map((level) => `${level.name} ${level.weight}`).join("\u3001");
+  lines.push("", `\u5171 ${(profile.seconds + (changed?.seconds ?? 0)).toFixed(0)} \u79D2\u3002\u4EF7\u503C\uFF1D\u5BF9\u624B\u56DE\u5408\u80FD\u7528\u7684\u6253\u65AD\u6309\u7EA7\u522B\u52A0\u6743\uFF08${weights}\uFF09\uFF0C\u4E58\u6B21\u6570\uFF1B\u53EA\u5728\u81EA\u5DF1\u56DE\u5408\u7528\u7684\u7B97 1\u3002\u62BD\u6837\u7684\u5E73\u5747\u503C\u5927\u7EA6\u6709 \xB11 \u7684\u8BEF\u5DEE\u3002`);
+  const notes = [...problems];
+  if (missing.length > 0) notes.push(`\u89C4\u5219\u5F15\u64CE\u8FD8\u6CA1\u6709\u8FD9\u4E9B\u5361\u7684\u6570\u636E\u6216\u811A\u672C\uFF0C\u7ED3\u679C\u53EF\u80FD\u4E0D\u5BF9\uFF1A${missing.map((card) => `\u300C${card.cn || card.en}\u300D`).join("\u3001")}`);
+  if (missingScripts.length > 0) notes.push(`\u5F15\u64CE\u8981\u4E86\u4F46\u6CA1\u627E\u5230\u7684\u811A\u672C\uFF1A${missingScripts.join("\u3001")}`);
+  if (notes.length > 0) lines.push("", "\u8BF7\u68C0\u67E5\uFF1A", ...notes.map((note) => `  - ${note}`));
+  return lines.join("\n");
+}
 
 // src/cards.ts
 import { existsSync as existsSync6, statSync as statSync2 } from "node:fs";
@@ -3031,6 +3094,8 @@ var LEVEL_NAMES = {
   \u4FDD\u62A4: 7
 };
 var REACH_DEPTH = 5;
+var OFF_TURN_BONUS = 1.5;
+var ON_TURN_DISCOUNT = 0.5;
 var OWN_TURN_VALUE = 1;
 var REACH_ZONES = {
   \u5893\u5730: "grave",
@@ -3064,7 +3129,7 @@ function parseTiers(text, deck, pool) {
     try {
       const card = findCard(cards, name);
       if (tiers.lines.some((other) => other.card.id === card.id)) throw new Error("\u4E00\u5F20\u5361\u53EA\u5199\u4E00\u884C");
-      const entry = { card, level: -1, uses: 1, where: "field", timing: "opponent", reach: null, besides: [], inExtra: [], inGrave: [] };
+      const entry = { card, level: -1, uses: 1, where: "field", timing: "opponent", offTurn: false, reach: null, besides: [], inExtra: [], inGrave: [] };
       for (const item of body.split(/[；;]/).map((part) => part.trim()).filter(Boolean)) {
         let match;
         if (match = item.match(/^(第0级|第零级|第一级|软康|第?1\.5级|第二级|第?2\.5级|第三级|保护)\s*(?:[×x*]\s*(\d+))?$/)) {
@@ -3074,8 +3139,8 @@ function parseTiers(text, deck, pool) {
         } else if (match = item.match(/^要\s*(?:手里或场上)?另有\s*(.+)$/)) entry.besides.push(parseGroup(match[1], pool));
         else if (match = item.match(/^要\s*额外(?:卡组)?(?:还)?有\s*(.+)$/)) entry.inExtra.push(parseGroup(match[1], pool));
         else if (match = item.match(/^要\s*墓地(?:里)?有\s*(.+)$/)) entry.inGrave.push(parseGroup(match[1], pool));
-        else if (match = item.match(/^回合外\s*(?:→|->)\s*(墓地|卡组|额外卡组|额外|手里|手卡|场上)\s*(.+)$/)) {
-          entry.reach = { zone: REACH_ZONES[match[1]], group: parseGroup(match[2], pool), count: entry.reach?.count ?? 1 };
+        else if (match = item.match(/^回合外\s*(?:→|->)\s*(墓地|卡组|额外卡组|额外|手里|手卡|场上)\s*(.+?)\s*(到手|加入手卡)?$/)) {
+          entry.reach = { zone: REACH_ZONES[match[1]], group: parseGroup(match[2], pool), count: entry.reach?.count ?? 1, toHand: match[3] !== void 0 };
         } else if (match = item.match(/^带\s*(\d+)\s*(?:只|张)?$/)) {
           if (entry.reach) entry.reach.count = Number(match[1]);
           else throw new Error('"\u5E26 N \u53EA"\u8981\u5199\u5728"\u56DE\u5408\u5916 \u2192 \u2026"\u540E\u9762');
@@ -3085,7 +3150,8 @@ function parseTiers(text, deck, pool) {
         else if (item === "\u5728\u573A\u4E0A\u6216\u624B\u91CC") entry.where = "fieldOrHand";
         else if (item === "\u81EA\u5DF1\u56DE\u5408") entry.timing = "own";
         else if (item === "\u53EC\u5524\u65F6") entry.timing = "summon";
-        else throw new Error(`\u770B\u4E0D\u61C2"${item}"\uFF0C\u8981\u5199\u4E00\u4E2A\u7EA7\u522B\uFF08\u7B2C0\u7EA7\u3001\u7B2C\u4E00\u7EA7\u3001\u8F6F\u5EB7\u30011.5\u7EA7\u3001\u7B2C\u4E8C\u7EA7\u30012.5\u7EA7\u3001\u7B2C\u4E09\u7EA7\u3001\u4FDD\u62A4\uFF0C\u53EF\u4EE5\u52A0\xD72\uFF09\u3001\u56DE\u5408\u5916 \u2192 <\u5728\u54EA> <\u5361>\u3001\u5E26 N \u53EA\u3001\u8981 \u53E6\u6709 <\u5361>\u3001\u8981 \u989D\u5916\u6709 <\u5361>\u3001\u8981 \u5893\u5730\u6709 <\u5361>\u3001\u5728\u624B\u91CC\u3001\u5728\u5893\u5730\u3001\u5728\u573A\u4E0A\u6216\u5893\u5730\u3001\u5728\u573A\u4E0A\u6216\u624B\u91CC\u3001\u81EA\u5DF1\u56DE\u5408\u3001\u53EC\u5524\u65F6`);
+        else if (/^回合外出(更好)?$/.test(item)) entry.offTurn = true;
+        else throw new Error(`\u770B\u4E0D\u61C2"${item}"\uFF0C\u8981\u5199\u4E00\u4E2A\u7EA7\u522B\uFF08\u7B2C0\u7EA7\u3001\u7B2C\u4E00\u7EA7\u3001\u8F6F\u5EB7\u30011.5\u7EA7\u3001\u7B2C\u4E8C\u7EA7\u30012.5\u7EA7\u3001\u7B2C\u4E09\u7EA7\u3001\u4FDD\u62A4\uFF0C\u53EF\u4EE5\u52A0\xD72\uFF09\u3001\u56DE\u5408\u5916 \u2192 <\u5728\u54EA> <\u5361>\u3001\u5E26 N \u53EA\u3001\u8981 \u53E6\u6709 <\u5361>\u3001\u8981 \u989D\u5916\u6709 <\u5361>\u3001\u8981 \u5893\u5730\u6709 <\u5361>\u3001\u5728\u624B\u91CC\u3001\u5728\u5893\u5730\u3001\u5728\u573A\u4E0A\u6216\u5893\u5730\u3001\u5728\u573A\u4E0A\u6216\u624B\u91CC\u3001\u81EA\u5DF1\u56DE\u5408\u3001\u53EC\u5524\u65F6\u3001\u56DE\u5408\u5916\u51FA`);
       }
       if (entry.level < 0 && !entry.reach) throw new Error("\u6CA1\u5199\u7EA7\u522B\uFF0C\u4E5F\u6CA1\u5199\u56DE\u5408\u5916\u80FD\u5E26\u51FA\u4EC0\u4E48");
       tiers.lines.push(entry);
@@ -3102,7 +3168,7 @@ function resolveTiers(tiers, deckCards, inArchetype) {
     besides: besides.map(ids),
     inExtra: inExtra.map(ids),
     inGrave: inGrave.map(ids),
-    reach: reach && { zone: reach.zone, ids: ids(reach.group), count: reach.count }
+    reach: reach && { zone: reach.zone, ids: ids(reach.group), count: reach.count, toHand: reach.toHand }
   }));
 }
 var DRAW_PENALTY = 4;
@@ -3406,10 +3472,13 @@ function createSearcher(engine, setup, cardOf, lines, saveLimit, stopped = () =>
     const worth = (card, line2, reached, depth, names3) => {
       const chain = [];
       let value2 = 0;
-      if (line2.level >= 0 && !(reached && line2.timing === "own") && !(!reached && line2.timing === "summon")) {
+      const usable = reached === "field" ? ["field", "any", "fieldOrHand"].includes(line2.where) : reached === "hand" ? ["hand", "fieldOrHand"].includes(line2.where) : true;
+      if (usable && line2.level >= 0 && !(reached && line2.timing === "own") && !(!reached && line2.timing === "summon")) {
         value2 = line2.timing === "own" ? OWN_TURN_VALUE : LEVELS[line2.level].weight * line2.uses;
+        if (reached) value2 *= OFF_TURN_BONUS;
+        else if (line2.offTurn && line2.timing !== "own") value2 *= ON_TURN_DISCOUNT;
       }
-      if (line2.reach && depth < REACH_DEPTH) {
+      if (usable && line2.reach && depth < REACH_DEPTH) {
         for (let picked = 0; picked < line2.reach.count; picked++) {
           let best = null;
           const tried = /* @__PURE__ */ new Set();
@@ -3420,7 +3489,7 @@ function createSearcher(engine, setup, cardOf, lines, saveLimit, stopped = () =>
             if (!otherLine || !conditionsHold(otherLine, other)) continue;
             const trial = new Set(names3);
             trial.add(other.id);
-            const result = worth(other, otherLine, true, depth + 1, trial);
+            const result = worth(other, otherLine, line2.reach.toHand ? "hand" : "field", depth + 1, trial);
             if (!best || result.value > best.value) best = { other, line: otherLine, trial, ...result };
           }
           if (!best || best.value <= 0) break;
@@ -3575,7 +3644,8 @@ function createSearcher(engine, setup, cardOf, lines, saveLimit, stopped = () =>
       });
       return { nodes, complete: nodes < limit && !interrupted, boards: [...found.values()].sort(boardOrder).slice(0, 30) };
     },
-    states: () => states
+    states: () => states,
+    dispose: () => engine.destroy(duel)
   };
 }
 function summarize(firsts, results, taskCounts, extraBoards, states, seconds) {
@@ -3608,59 +3678,45 @@ function planHand(engine, setup, cardOf, lines, nodeLimit = 3e4) {
   return summarize(firsts, results, firsts.map(() => 1), [], searcher.states(), (performance.now() - started) / 1e3);
 }
 if (!isMainThread && workerData?.role === "plan-worker") void runWorker(workerData);
-async function runWorker({ setup, cards, lines, saveLimit, shared, seen }) {
+async function runWorker({ cards, lines, saveLimit, shared, seen }) {
   const byCode = new Map(cards);
   const counters = new Int32Array(shared);
   const engine = await startEngine(await loadEngineData(Infinity));
   const stopped = () => Atomics.add(counters, 0, 1) >= 0 && Atomics.load(counters, 1) === 1;
-  const searcher = createSearcher(engine, setup, (code) => byCode.get(code), lines, saveLimit, stopped, sharedSeen(new BigInt64Array(seen)));
-  parentPort.on("message", (task) => {
+  let searcher = null;
+  parentPort.on("message", (message) => {
+    if ("setup" in message) {
+      searcher?.dispose();
+      searcher = createSearcher(engine, message.setup, (code) => byCode.get(code), lines, saveLimit, stopped, sharedSeen(new BigInt64Array(seen)));
+      parentPort.postMessage({ ready: true });
+      return;
+    }
+    const task = message;
     const limit = task.limit ?? Infinity;
     const explored = task.play ? searcher.exploreInterrupted(task.path, task.play, limit) : searcher.explore(task.path, limit);
     parentPort.postMessage({ id: task.id, explored, states: searcher.states() });
   });
-  parentPort.postMessage({ ready: true });
+  parentPort.postMessage({ started: true });
 }
 var INTERRUPTION_NODES = 3e3;
-async function planParallel(engine, setup, cardOf, cards, lines, limits, threads = Math.max(1, Math.min(availableParallelism() - 1, 8))) {
-  const started = performance.now();
-  const searcher = createSearcher(engine, setup, cardOf, lines, 8);
-  const firsts = searcher.firstChoices();
-  let frontier = firsts.map((_, first) => ({ first, path: [first] }));
-  const extraBoards = [];
-  for (let depth = 0; depth < 6 && frontier.length < threads * 12; depth++) {
-    const next = [];
-    for (const task of frontier) {
-      const node = searcher.expand(task.path);
-      if (!node) continue;
-      if (node.board) extraBoards.push(node.board);
-      for (let index = 0; index < node.count; index++) next.push({ first: task.first, path: [...task.path, index] });
-    }
-    if (next.length === 0) break;
-    frontier = next;
-  }
-  const byFirst = firsts.map((_, first) => frontier.filter((task) => task.first === first));
-  const queue = [];
-  for (let round = 0; queue.length < frontier.length; round++) {
-    for (const group of byFirst) if (group[round]) queue.push({ ...group[round], id: queue.length });
-  }
-  const taskCounts = byFirst.map((group) => group.length);
-  const taskFirst = queue.map((task) => task.first);
+function createPlanner(engine, cardOf, cards, lines, threads = Math.max(1, Math.min(availableParallelism() - 1, 8))) {
   const shared = new SharedArrayBuffer(8);
   const counters = new Int32Array(shared);
-  const workerSetup = {
-    role: "plan-worker",
-    setup,
-    cards,
-    lines,
-    saveLimit: Math.max(8, Math.floor(128 / threads)),
-    shared,
-    seen: new SharedArrayBuffer(SEEN_SLOTS * 8)
-  };
-  const workers = Array.from({ length: Math.min(threads, Math.max(queue.length, 1)) }, () => new Worker2(new URL(import.meta.url), { workerData: workerSetup }));
-  const ready = /* @__PURE__ */ new Set();
+  const seenTable = new SharedArrayBuffer(SEEN_SLOTS * 8);
+  const workerSetup = { role: "plan-worker", cards, lines, saveLimit: Math.max(8, Math.floor(128 / threads)), shared, seen: seenTable };
+  const workers = Array.from({ length: threads }, () => new Worker2(new URL(import.meta.url), { workerData: workerSetup }));
   const workerStates = /* @__PURE__ */ new Map();
   const states = () => [...workerStates.values()].reduce((sum, count) => sum + count, 0);
+  let nodeLimit = Infinity;
+  const waitAll = (flag) => Promise.all(workers.map((worker) => new Promise((resolve, reject) => {
+    worker.removeAllListeners("message");
+    worker.removeAllListeners("error");
+    worker.on("message", (message) => {
+      if (message[flag]) resolve();
+    });
+    worker.on("error", reject);
+  }))).then(() => void 0);
+  const started = waitAll("started");
   const run = (tasks, seconds) => new Promise((resolve, reject) => {
     const pending = [...tasks];
     const results = /* @__PURE__ */ new Map();
@@ -3668,7 +3724,7 @@ async function planParallel(engine, setup, cardOf, cards, lines, limits, threads
     Atomics.store(counters, 1, 0);
     const deadline = performance.now() + seconds * 1e3;
     const watch = setInterval(() => {
-      if (Atomics.load(counters, 0) >= limits.nodes || performance.now() >= deadline) Atomics.store(counters, 1, 1);
+      if (Atomics.load(counters, 0) >= nodeLimit || performance.now() >= deadline) Atomics.store(counters, 1, 1);
     }, 50);
     let busy = 0;
     const finish = () => {
@@ -3686,11 +3742,6 @@ async function planParallel(engine, setup, cardOf, cards, lines, limits, threads
       worker.removeAllListeners("message");
       worker.removeAllListeners("error");
       worker.on("message", (message) => {
-        if (message.ready) {
-          ready.add(worker);
-          feed(worker);
-          return;
-        }
         results.set(message.id, message.explored);
         workerStates.set(worker, message.states);
         busy--;
@@ -3700,67 +3751,119 @@ async function planParallel(engine, setup, cardOf, cards, lines, limits, threads
         clearInterval(watch);
         reject(error);
       });
-      if (ready.has(worker)) feed(worker);
+      feed(worker);
     }
   });
-  try {
-    const phase1 = await run(queue.map((task) => ({ id: task.id, path: task.path })), limits.seconds);
-    const results = [...phase1].map(([id, explored]) => ({ first: taskFirst[id], explored }));
-    const result = summarize(firsts, results, taskCounts, extraBoards, states(), (performance.now() - started) / 1e3);
-    const best = result.boards[0];
-    if (best && best.path.length > 0 && setup.opponentHand?.length) {
-      const chances = setup.opponentHand.map((code) => ({ code, found: searcher.opportunities(best.path, code) }));
-      const ids = /* @__PURE__ */ new Map();
-      let tasks = [];
-      for (const { code, found } of chances) {
-        for (const chance of found) {
-          const id = ids.size;
-          ids.set(id, { code, chance, target: 0 });
-          tasks.push({ id, path: best.path.slice(0, chance.prefix), play: { code, at: chance.at, target: 0 }, limit: INTERRUPTION_NODES });
+  return {
+    async plan(setup, limits, interruptions) {
+      await started;
+      const begun = performance.now();
+      nodeLimit = limits.nodes;
+      new BigInt64Array(seenTable).fill(0n);
+      workerStates.clear();
+      const switching = waitAll("ready");
+      for (const worker of workers) worker.postMessage({ setup });
+      const searcher = createSearcher(engine, setup, cardOf, lines, 8);
+      try {
+        const firsts = searcher.firstChoices();
+        let frontier = firsts.map((_, first) => ({ first, path: [first] }));
+        const extraBoards = [];
+        for (let depth = 0; depth < 6 && frontier.length < threads * 12; depth++) {
+          const next = [];
+          for (const task of frontier) {
+            const node = searcher.expand(task.path);
+            if (!node) continue;
+            if (node.board) extraBoards.push(node.board);
+            for (let index = 0; index < node.count; index++) next.push({ first: task.first, path: [...task.path, index] });
+          }
+          if (next.length === 0) break;
+          frontier = next;
         }
-      }
-      const phaseDeadline = performance.now() + limits.seconds / 2 * 1e3;
-      const remaining = () => Math.max(1, (phaseDeadline - performance.now()) / 1e3);
-      const phase2 = await run(tasks, remaining());
-      tasks = [];
-      for (const [id, explored] of phase2) {
-        const info = ids.get(id);
-        for (let target = 1; target < (explored.targets ?? 0); target++) {
-          const newId = ids.size;
-          ids.set(newId, { ...info, target });
-          tasks.push({ id: newId, path: best.path.slice(0, info.chance.prefix), play: { code: info.code, at: info.chance.at, target }, limit: INTERRUPTION_NODES });
+        const byFirst = firsts.map((_, first) => frontier.filter((task) => task.first === first));
+        const queue = [];
+        for (let round = 0; queue.length < frontier.length; round++) {
+          for (const group of byFirst) if (group[round]) queue.push({ ...group[round], id: queue.length });
         }
-      }
-      const phase3 = tasks.length > 0 ? await run(tasks, remaining()) : /* @__PURE__ */ new Map();
-      const all = new Map([...phase2, ...phase3]);
-      for (const { code, found } of chances) {
-        const card = cardOf(code);
-        if (!card) continue;
-        let worst = null;
-        for (const [id, explored] of all) {
-          const info = ids.get(id);
-          if (info.code !== code || explored.nodes === 0 && !explored.complete) continue;
-          const board = explored.boards[0] ?? null;
-          const value = board?.value ?? -Infinity;
-          if (!worst || value < (worst.board?.value ?? -Infinity)) worst = { card, opportunities: found.length, after: info.chance.after, board, complete: explored.complete };
+        const taskCounts = byFirst.map((group) => group.length);
+        const taskFirst = queue.map((task) => task.first);
+        await switching;
+        const phase1 = await run(queue.map((task) => ({ id: task.id, path: task.path })), limits.seconds);
+        const results = [...phase1].map(([id, explored]) => ({ first: taskFirst[id], explored }));
+        const result = summarize(firsts, results, taskCounts, extraBoards, states(), (performance.now() - begun) / 1e3);
+        const best = result.boards[0];
+        if (interruptions && best && best.path.length > 0 && setup.opponentHand?.length) {
+          const chances = setup.opponentHand.map((code) => ({ code, found: searcher.opportunities(best.path, code) }));
+          const ids = /* @__PURE__ */ new Map();
+          let tasks = [];
+          for (const { code, found } of chances) {
+            for (const chance of found) {
+              const id = ids.size;
+              ids.set(id, { code, chance, target: 0 });
+              tasks.push({ id, path: best.path.slice(0, chance.prefix), play: { code, at: chance.at, target: 0 }, limit: INTERRUPTION_NODES });
+            }
+          }
+          const phaseDeadline = performance.now() + limits.seconds / 2 * 1e3;
+          const remaining = () => Math.max(1, (phaseDeadline - performance.now()) / 1e3);
+          const phase2 = await run(tasks, remaining());
+          tasks = [];
+          for (const [id, explored] of phase2) {
+            const info = ids.get(id);
+            for (let target = 1; target < (explored.targets ?? 0); target++) {
+              const newId = ids.size;
+              ids.set(newId, { ...info, target });
+              tasks.push({ id: newId, path: best.path.slice(0, info.chance.prefix), play: { code: info.code, at: info.chance.at, target }, limit: INTERRUPTION_NODES });
+            }
+          }
+          const phase3 = tasks.length > 0 ? await run(tasks, remaining()) : /* @__PURE__ */ new Map();
+          const all = new Map([...phase2, ...phase3]);
+          for (const { code, found } of chances) {
+            const card = cardOf(code);
+            if (!card) continue;
+            let worst = null;
+            for (const [id, explored] of all) {
+              const info = ids.get(id);
+              if (info.code !== code || explored.nodes === 0 && !explored.complete) continue;
+              const board = explored.boards[0] ?? null;
+              const value = board?.value ?? -Infinity;
+              if (!worst || value < (worst.board?.value ?? -Infinity)) worst = { card, opportunities: found.length, after: info.chance.after, board, complete: explored.complete };
+            }
+            result.interruptions.push(worst ?? { card, opportunities: 0, after: "", board: null, complete: true });
+          }
+          result.seconds = (performance.now() - begun) / 1e3;
+          result.states = states();
         }
-        result.interruptions.push(worst ?? { card, opportunities: 0, after: "", board: null, complete: true });
+        return result;
+      } finally {
+        searcher.dispose();
       }
-      result.seconds = (performance.now() - started) / 1e3;
-      result.states = states();
+    },
+    async close() {
+      await Promise.all(workers.map((worker) => worker.terminate()));
     }
-    return result;
-  } finally {
-    await Promise.all(workers.map((worker) => worker.terminate()));
-  }
+  };
 }
-async function planText(input, handText, tiersText, limits) {
+async function prepare(input, tiersText) {
   const { cards, deck } = await loadDeck(input);
   const deckCards = [...deck.main, ...deck.extra].map((entry) => entry.card);
   let data = await loadEngineData();
   if (deckCards.some((card) => !engineKnows(card, data))) data = await loadEngineData(300);
   const missing = deckCards.filter((card) => !engineKnows(card, data));
   const code = (card) => [card.id, ...card.altIds].find((id) => data.has(id)) ?? card.id;
+  const tiers = parseTiers(tiersText, deck, cards);
+  const byCode = /* @__PURE__ */ new Map();
+  for (const card of [...cards, ...deckCards]) for (const id of [code(card), card.id, ...card.altIds]) byCode.set(id, card);
+  const engine = await startEngine(data);
+  const lines = resolveTiers(tiers, deckCards, archetypesOf(cards));
+  const planner = createPlanner(engine, (id) => byCode.get(id), [...byCode], lines);
+  const extra = deck.extra.flatMap((entry) => Array(entry.count).fill(code(entry.card)));
+  const setupFor = (hand, rest) => ({ hand: hand.map(code), main: rest.map(code), extra, opponentHand: Object.values(HAND_TRAPS) });
+  const notes = () => {
+    const libraries = [...engine.missingScripts].filter((name) => !/^c\d+\.lua$/.test(name));
+    return { problems: tiers.problems, missing, libraries };
+  };
+  return { cards, deck, tiers, lines, planner, setupFor, notes, code };
+}
+function drawNamed(deck, handText) {
   const pile = deck.main.flatMap((entry) => Array(entry.count).fill(entry.card));
   const names3 = handText.split(/[,，、;；\n]/).map((part) => part.trim()).filter(Boolean);
   if (names3.length === 0 || names3.length > 6) throw new Error(`\u8D77\u624B\u8981\u5199 1\uFF5E6 \u5F20\u5361\uFF0C\u73B0\u5728\u662F ${names3.length} \u5F20`);
@@ -3773,25 +3876,26 @@ async function planText(input, handText, tiersText, limits) {
     }
     return pile.splice(index, 1)[0];
   });
-  const tiers = parseTiers(tiersText, deck, cards);
-  const byCode = /* @__PURE__ */ new Map();
-  for (const card of [...cards, ...deckCards]) for (const id of [code(card), card.id, ...card.altIds]) byCode.set(id, card);
-  const engine = await startEngine(data);
-  const setup = {
-    hand: hand.map(code),
-    main: pile.map(code),
-    extra: deck.extra.flatMap((entry) => Array(entry.count).fill(code(entry.card))),
-    opponentHand: Object.values(HAND_TRAPS)
-  };
-  const lines = resolveTiers(tiers, deckCards, archetypesOf(cards));
-  const result = await planParallel(engine, setup, (id) => byCode.get(id), [...byCode], lines, limits);
-  const libraries = [...engine.missingScripts].filter((name) => !/^c\d+\.lua$/.test(name));
-  return formatPlan(hand, result, tiers.problems, missing, libraries);
+  return { hand, rest: pile };
+}
+async function planText(input, handText, tiersText, limits) {
+  const { deck, planner, setupFor, notes } = await prepare(input, tiersText);
+  try {
+    const { hand, rest } = drawNamed(deck, handText);
+    const result = await planner.plan(setupFor(hand, rest), limits, true);
+    const { problems, missing, libraries } = notes();
+    return formatPlan(hand, result, problems, missing, libraries);
+  } finally {
+    await planner.close();
+  }
 }
 
 export {
   CONFIG_DIR,
+  cachePath,
+  readJson,
   writeText,
+  changeDeck,
   LEVELS,
   parseTiers,
   resolveTiers,
@@ -3801,8 +3905,11 @@ export {
   SEEN_SLOTS,
   sharedSeen,
   planHand,
-  planParallel,
+  createPlanner,
+  prepare,
+  drawNamed,
   planText,
+  formatProfile,
   lookup,
   search,
   importDeck,

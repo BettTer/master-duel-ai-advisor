@@ -33,6 +33,10 @@ const LEVEL_NAMES: Record<string, number> = {
   第0级: 0, 第零级: 0, 第一级: 1, "1.5级": 2, "第1.5级": 2, 第二级: 3, "2.5级": 4, "第2.5级": 4, 软康: 5, 第三级: 6, 保护: 7,
 };
 const REACH_DEPTH = 5;
+/** An endpoint brought out on the opponent's turn was never exposed on ours and its engine was not spent early. */
+const OFF_TURN_BONUS = 1.5;
+/** An endpoint meant for the opponent's turn (虹光, made by Pinny's synchro) but made on ours wastes that engine. */
+const ON_TURN_DISCOUNT = 0.5;
 /** An effect usable only on our own turn still helps on our next turn: a small fixed value. */
 const OWN_TURN_VALUE = 1;
 
@@ -43,8 +47,9 @@ interface TierLine {
   uses: number; // how many times it can do it on the opponent's turn
   where: "field" | "grave" | "any" | "hand" | "fieldOrHand"; // field: face-up monster or a card in the spell & trap zones
   timing: "opponent" | "own" | "summon"; // usable on the opponent's turn; only on ours (Ignition); only when summoned
-  /** On the opponent's turn it brings out or adds cards like this from that zone: it is worth what they are worth. */
-  reach: { zone: "grave" | "deck" | "extra" | "hand" | "field"; group: Group; count: number } | null;
+  offTurn: boolean; // best brought out on the opponent's turn; made on ours it counts half
+  /** On the opponent's turn it brings out (or, with `到手`, adds to the hand) cards like this from that zone. */
+  reach: { zone: "grave" | "deck" | "extra" | "hand" | "field"; group: Group; count: number; toHand: boolean } | null;
   besides: Group[]; // another card like this must be in the hand or on the field (e.g. a cost to send)
   inExtra: Group[]; // a card like this must still be in the Extra Deck (e.g. something it summons later)
   inGrave: Group[]; // a card like this must be in the GY (e.g. a WATER monster for Adamancipator Risen - Dragite)
@@ -75,8 +80,10 @@ function findCard(cards: Card[], name: string): Card {
  *   赫焉龙 大木偶剧场龙：第二级；要 额外有 「死狱乡」怪兽；在场上或墓地
  *   三英之相剑师：第二级；自己回合
  *   混沌之双翼：第三级；召唤时
+ *   虹光之宣告者：第一级；回合外出
  *   卫星闪灵·淘气精灵：保护；回合外 → 墓地 2星 怪兽
  *   童话动物·小小袋鼠：回合外 → 卡组 「童话动物」怪兽；带 2 只；在场上或手里
+ *   童话动物·小猫：回合外 → 卡组 兽族 怪兽 到手；在场上或手里
  *   灰流丽：第二级；在手里
  */
 export function parseTiers(text: string, deck: Deck, pool: Card[]): Tiers {
@@ -96,7 +103,7 @@ export function parseTiers(text: string, deck: Deck, pool: Card[]): Tiers {
     try {
       const card = findCard(cards, name);
       if (tiers.lines.some((other) => other.card.id === card.id)) throw new Error("一张卡只写一行");
-      const entry: TierLine = { card, level: -1, uses: 1, where: "field", timing: "opponent", reach: null, besides: [], inExtra: [], inGrave: [] };
+      const entry: TierLine = { card, level: -1, uses: 1, where: "field", timing: "opponent", offTurn: false, reach: null, besides: [], inExtra: [], inGrave: [] };
       for (const item of body.split(/[；;]/).map((part) => part.trim()).filter(Boolean)) {
         let match: RegExpMatchArray | null;
         if ((match = item.match(/^(第0级|第零级|第一级|软康|第?1\.5级|第二级|第?2\.5级|第三级|保护)\s*(?:[×x*]\s*(\d+))?$/))) {
@@ -106,8 +113,8 @@ export function parseTiers(text: string, deck: Deck, pool: Card[]): Tiers {
         } else if ((match = item.match(/^要\s*(?:手里或场上)?另有\s*(.+)$/))) entry.besides.push(parseGroup(match[1], pool));
         else if ((match = item.match(/^要\s*额外(?:卡组)?(?:还)?有\s*(.+)$/))) entry.inExtra.push(parseGroup(match[1], pool));
         else if ((match = item.match(/^要\s*墓地(?:里)?有\s*(.+)$/))) entry.inGrave.push(parseGroup(match[1], pool));
-        else if ((match = item.match(/^回合外\s*(?:→|->)\s*(墓地|卡组|额外卡组|额外|手里|手卡|场上)\s*(.+)$/))) {
-          entry.reach = { zone: REACH_ZONES[match[1]], group: parseGroup(match[2], pool), count: entry.reach?.count ?? 1 };
+        else if ((match = item.match(/^回合外\s*(?:→|->)\s*(墓地|卡组|额外卡组|额外|手里|手卡|场上)\s*(.+?)\s*(到手|加入手卡)?$/))) {
+          entry.reach = { zone: REACH_ZONES[match[1]], group: parseGroup(match[2], pool), count: entry.reach?.count ?? 1, toHand: match[3] !== undefined };
         } else if ((match = item.match(/^带\s*(\d+)\s*(?:只|张)?$/))) {
           if (entry.reach) entry.reach.count = Number(match[1]);
           else throw new Error("\"带 N 只\"要写在\"回合外 → …\"后面");
@@ -118,7 +125,8 @@ export function parseTiers(text: string, deck: Deck, pool: Card[]): Tiers {
         else if (item === "在场上或手里") entry.where = "fieldOrHand";
         else if (item === "自己回合") entry.timing = "own";
         else if (item === "召唤时") entry.timing = "summon";
-        else throw new Error(`看不懂"${item}"，要写一个级别（第0级、第一级、软康、1.5级、第二级、2.5级、第三级、保护，可以加×2）、回合外 → <在哪> <卡>、带 N 只、要 另有 <卡>、要 额外有 <卡>、要 墓地有 <卡>、在手里、在墓地、在场上或墓地、在场上或手里、自己回合、召唤时`);
+        else if (/^回合外出(更好)?$/.test(item)) entry.offTurn = true;
+        else throw new Error(`看不懂"${item}"，要写一个级别（第0级、第一级、软康、1.5级、第二级、2.5级、第三级、保护，可以加×2）、回合外 → <在哪> <卡>、带 N 只、要 另有 <卡>、要 额外有 <卡>、要 墓地有 <卡>、在手里、在墓地、在场上或墓地、在场上或手里、自己回合、召唤时、回合外出`);
       }
       if (entry.level < 0 && !entry.reach) throw new Error("没写级别，也没写回合外能带出什么");
       tiers.lines.push(entry);
@@ -136,17 +144,18 @@ export interface ResolvedLine {
   uses: number;
   where: TierLine["where"];
   timing: TierLine["timing"];
+  offTurn: boolean;
   besides: number[][];
   inExtra: number[][];
   inGrave: number[][];
-  reach: { zone: "grave" | "deck" | "extra" | "hand" | "field"; ids: number[]; count: number } | null;
+  reach: { zone: "grave" | "deck" | "extra" | "hand" | "field"; ids: number[]; count: number; toHand: boolean } | null;
 }
 
 export function resolveTiers(tiers: Tiers, deckCards: Card[], inArchetype: InArchetype): ResolvedLine[] {
   const ids = (group: Group) => deckCards.filter((card) => inGroup(card, group, inArchetype)).map((card) => card.id);
   return tiers.lines.map(({ besides, inExtra, inGrave, reach, ...line }) => ({
     ...line, besides: besides.map(ids), inExtra: inExtra.map(ids), inGrave: inGrave.map(ids),
-    reach: reach && { zone: reach.zone, ids: ids(reach.group), count: reach.count },
+    reach: reach && { zone: reach.zone, ids: ids(reach.group), count: reach.count, toHand: reach.toHand },
   }));
 }
 
@@ -548,13 +557,18 @@ function createSearcher(
      * the opponent's turn, so effects on summon count and effects for our own turn do not). `names` holds every card
      * name already counted, so nothing is counted twice however it is reached; it is extended as cards are chosen.
      */
-    const worth = (card: Card, line: ResolvedLine, reached: boolean, depth: number, names: Set<number>): { value: number; chain: Board["counted"] } => {
+    const worth = (card: Card, line: ResolvedLine, reached: false | "field" | "hand", depth: number, names: Set<number>): { value: number; chain: Board["counted"] } => {
       const chain: Board["counted"] = [];
       let value = 0;
-      if (line.level >= 0 && !(reached && line.timing === "own") && !(!reached && line.timing === "summon")) {
+      // A card brought out lands on the field, or in the hand with 到手: only what works from there counts.
+      const usable = reached === "field" ? ["field", "any", "fieldOrHand"].includes(line.where)
+        : reached === "hand" ? ["hand", "fieldOrHand"].includes(line.where) : true;
+      if (usable && line.level >= 0 && !(reached && line.timing === "own") && !(!reached && line.timing === "summon")) {
         value = line.timing === "own" ? OWN_TURN_VALUE : LEVELS[line.level].weight * line.uses;
+        if (reached) value *= OFF_TURN_BONUS;
+        else if (line.offTurn && line.timing !== "own") value *= ON_TURN_DISCOUNT;
       }
-      if (line.reach && depth < REACH_DEPTH) {
+      if (usable && line.reach && depth < REACH_DEPTH) {
         for (let picked = 0; picked < line.reach.count; picked++) {
           // Try each candidate with its own copy of the counted names; keep the best and commit its names.
           let best: { other: Card; line: ResolvedLine; trial: Set<number>; value: number; chain: Board["counted"] } | null = null;
@@ -566,7 +580,7 @@ function createSearcher(
             if (!otherLine || !conditionsHold(otherLine, other)) continue;
             const trial = new Set(names);
             trial.add(other.id);
-            const result = worth(other, otherLine, true, depth + 1, trial);
+            const result = worth(other, otherLine, line.reach.toHand ? "hand" : "field", depth + 1, trial);
             if (!best || result.value > best.value) best = { other, line: otherLine, trial, ...result };
           }
           if (!best || best.value <= 0) break;
@@ -725,6 +739,7 @@ function createSearcher(
       return { nodes, complete: nodes < limit && !interrupted, boards: [...found.values()].sort(boardOrder).slice(0, 30) };
     },
     states: () => states,
+    dispose: () => engine.destroy(duel),
   };
 }
 
@@ -765,7 +780,6 @@ export function planHand(engine: Engine, setup: Setup, cardOf: (code: number) =>
 
 interface WorkerSetup {
   role: "plan-worker";
-  setup: Setup;
   cards: [number, Card][];
   lines: ResolvedLine[];
   saveLimit: number;
@@ -775,72 +789,68 @@ interface WorkerSetup {
 
 if (!isMainThread && (workerData as WorkerSetup | undefined)?.role === "plan-worker") void runWorker(workerData as WorkerSetup);
 
-async function runWorker({ setup, cards, lines, saveLimit, shared, seen }: WorkerSetup) {
+/** A worker keeps one engine and switches to a new hand when told; then it takes search tasks. */
+async function runWorker({ cards, lines, saveLimit, shared, seen }: WorkerSetup) {
   const byCode = new Map(cards);
   const counters = new Int32Array(shared);
   const engine = await startEngine(await loadEngineData(Infinity));
   const stopped = () => Atomics.add(counters, 0, 1) >= 0 && Atomics.load(counters, 1) === 1;
-  const searcher = createSearcher(engine, setup, (code) => byCode.get(code), lines, saveLimit, stopped, sharedSeen(new BigInt64Array(seen)));
-  parentPort!.on("message", (task: Task) => {
+  let searcher: ReturnType<typeof createSearcher> | null = null;
+  parentPort!.on("message", (message: { setup: Setup } | Task) => {
+    if ("setup" in message) {
+      searcher?.dispose();
+      searcher = createSearcher(engine, message.setup, (code) => byCode.get(code), lines, saveLimit, stopped, sharedSeen(new BigInt64Array(seen)));
+      parentPort!.postMessage({ ready: true });
+      return;
+    }
+    const task = message;
     const limit = task.limit ?? Infinity;
-    const explored = task.play ? searcher.exploreInterrupted(task.path, task.play, limit) : searcher.explore(task.path, limit);
-    parentPort!.postMessage({ id: task.id, explored, states: searcher.states() });
+    const explored = task.play ? searcher!.exploreInterrupted(task.path, task.play, limit) : searcher!.explore(task.path, limit);
+    parentPort!.postMessage({ id: task.id, explored, states: searcher!.states() });
   });
-  parentPort!.postMessage({ ready: true });
+  parentPort!.postMessage({ started: true });
 }
 
 interface Task { id: number; path: number[]; play?: OpponentPlay; limit?: number }
 /** Nodes per interruption task: enough for a fallback, small enough that every chance gets its turn. */
 const INTERRUPTION_NODES = 3000;
 
-/**
- * Plan on several threads. The first few levels of the search tree are expanded here into tasks; each worker runs
- * its own engine and takes tasks until none are left or the shared budget of nodes or seconds runs out. Tasks from
- * different first actions take turns, so every first action gets searched. Then, for each hand trap the opponent
- * might hold, every chance to use it along the best route is tried, and the one that leaves us the worst best
- * board is reported with our fallback.
- */
-export async function planParallel(
-  engine: Engine, setup: Setup, cardOf: (code: number) => Card | undefined, cards: [number, Card][], lines: ResolvedLine[],
-  limits: { nodes: number; seconds: number }, threads = Math.max(1, Math.min(availableParallelism() - 1, 8)),
-): Promise<PlanResult> {
-  const started = performance.now();
-  const searcher = createSearcher(engine, setup, cardOf, lines, 8);
-  const firsts = searcher.firstChoices();
-  // Expand the top of the tree until there are a few tasks per thread, keeping the boards found on the way.
-  let frontier = firsts.map((_, first) => ({ first, path: [first] }));
-  const extraBoards: Board[] = [];
-  for (let depth = 0; depth < 6 && frontier.length < threads * 12; depth++) {
-    const next: typeof frontier = [];
-    for (const task of frontier) {
-      const node = searcher.expand(task.path);
-      if (!node) continue;
-      if (node.board) extraBoards.push(node.board);
-      for (let index = 0; index < node.count; index++) next.push({ first: task.first, path: [...task.path, index] });
-    }
-    if (next.length === 0) break;
-    frontier = next;
-  }
-  // Take tasks in turns across first actions.
-  const byFirst = firsts.map((_, first) => frontier.filter((task) => task.first === first));
-  const queue: { id: number; first: number; path: number[] }[] = [];
-  for (let round = 0; queue.length < frontier.length; round++) {
-    for (const group of byFirst) if (group[round]) queue.push({ ...group[round], id: queue.length });
-  }
-  const taskCounts = byFirst.map((group) => group.length);
-  const taskFirst = queue.map((task) => task.first);
+export interface Planner {
+  /** The best board for one hand, with its route; interruptions take up to half the time again when asked for. */
+  plan(setup: Setup, limits: { nodes: number; seconds: number }, interruptions: boolean): Promise<PlanResult>;
+  close(): Promise<void>;
+}
 
+/**
+ * A pool of worker threads, each with its own engine, that plans one hand after another. For each hand the first
+ * few levels of the search tree are expanded here into tasks; workers take tasks until none are left or the shared
+ * budget of nodes or seconds runs out. Tasks from different first actions take turns, so every first action gets
+ * searched. Then, when asked, each hand trap the opponent might hold is tried at every chance along the best route,
+ * and the one that leaves us the worst best board is reported with our fallback.
+ */
+export function createPlanner(
+  engine: Engine, cardOf: (code: number) => Card | undefined, cards: [number, Card][], lines: ResolvedLine[],
+  threads = Math.max(1, Math.min(availableParallelism() - 1, 8)),
+): Planner {
   const shared = new SharedArrayBuffer(8);
   const counters = new Int32Array(shared);
+  const seenTable = new SharedArrayBuffer(SEEN_SLOTS * 8);
   // Saves cost 16 MB each: keep the threads together under about 2 GB.
-  const workerSetup: WorkerSetup = {
-    role: "plan-worker", setup, cards, lines, saveLimit: Math.max(8, Math.floor(128 / threads)), shared,
-    seen: new SharedArrayBuffer(SEEN_SLOTS * 8),
-  };
-  const workers = Array.from({ length: Math.min(threads, Math.max(queue.length, 1)) }, () => new Worker(new URL(import.meta.url), { workerData: workerSetup }));
-  const ready = new Set<Worker>(); // workers announce themselves once, when their engine is up
+  const workerSetup: WorkerSetup = { role: "plan-worker", cards, lines, saveLimit: Math.max(8, Math.floor(128 / threads)), shared, seen: seenTable };
+  const workers = Array.from({ length: threads }, () => new Worker(new URL(import.meta.url), { workerData: workerSetup }));
   const workerStates = new Map<Worker, number>(); // each worker's running total of positions searched
   const states = () => [...workerStates.values()].reduce((sum, count) => sum + count, 0);
+  let nodeLimit = Infinity;
+
+  /** Wait for every worker to answer with the given flag. */
+  const waitAll = (flag: string): Promise<void> => Promise.all(workers.map((worker) => new Promise<void>((resolve, reject) => {
+    worker.removeAllListeners("message");
+    worker.removeAllListeners("error");
+    worker.on("message", (message: any) => { if (message[flag]) resolve(); });
+    worker.on("error", reject);
+  }))).then(() => undefined);
+  const started = waitAll("started");
+
   /** Run tasks on the pool until done or the budget runs out; results arrive in any order. */
   const run = (tasks: Task[], seconds: number): Promise<Map<number, Explored>> => new Promise((resolve, reject) => {
     const pending = [...tasks];
@@ -849,7 +859,7 @@ export async function planParallel(
     Atomics.store(counters, 1, 0);
     const deadline = performance.now() + seconds * 1000;
     const watch = setInterval(() => {
-      if (Atomics.load(counters, 0) >= limits.nodes || performance.now() >= deadline) Atomics.store(counters, 1, 1);
+      if (Atomics.load(counters, 0) >= nodeLimit || performance.now() >= deadline) Atomics.store(counters, 1, 1);
     }, 50);
     let busy = 0;
     const finish = () => { clearInterval(watch); resolve(results); };
@@ -862,82 +872,137 @@ export async function planParallel(
       worker.removeAllListeners("message");
       worker.removeAllListeners("error");
       worker.on("message", (message: any) => {
-        if (message.ready) { ready.add(worker); feed(worker); return; }
         results.set(message.id, message.explored);
         workerStates.set(worker, message.states);
         busy--;
         feed(worker);
       });
       worker.on("error", (error) => { clearInterval(watch); reject(error); });
-      if (ready.has(worker)) feed(worker);
+      feed(worker);
     }
   });
-  try {
-    // Workers announce themselves when their engine is up; the first phase starts from those announcements and
-    // later phases feed the workers directly.
-    const phase1 = await run(queue.map((task) => ({ id: task.id, path: task.path })), limits.seconds);
-    const results = [...phase1].map(([id, explored]) => ({ first: taskFirst[id], explored }));
-    const result = summarize(firsts, results, taskCounts, extraBoards, states(), (performance.now() - started) / 1000);
-    const best = result.boards[0];
-    if (best && best.path.length > 0 && setup.opponentHand?.length) {
-      // Phase 2: each hand trap at each of its chances; Infinite Impermanence also at each of its targets.
-      const chances = setup.opponentHand.map((code) => ({ code, found: searcher.opportunities(best.path, code) }));
-      const ids = new Map<number, { code: number; chance: Opportunity; target: number }>();
-      let tasks: Task[] = [];
-      for (const { code, found } of chances) {
-        for (const chance of found) {
-          const id = ids.size;
-          ids.set(id, { code, chance, target: 0 });
-          tasks.push({ id, path: best.path.slice(0, chance.prefix), play: { code, at: chance.at, target: 0 }, limit: INTERRUPTION_NODES });
+
+  return {
+    async plan(setup, limits, interruptions) {
+      await started;
+      const begun = performance.now();
+      nodeLimit = limits.nodes;
+      new BigInt64Array(seenTable).fill(0n);
+      workerStates.clear();
+      const switching = waitAll("ready");
+      for (const worker of workers) worker.postMessage({ setup });
+      const searcher = createSearcher(engine, setup, cardOf, lines, 8);
+      try {
+        const firsts = searcher.firstChoices();
+        // Expand the top of the tree until there are a few tasks per thread, keeping the boards found on the way.
+        let frontier = firsts.map((_, first) => ({ first, path: [first] }));
+        const extraBoards: Board[] = [];
+        for (let depth = 0; depth < 6 && frontier.length < threads * 12; depth++) {
+          const next: typeof frontier = [];
+          for (const task of frontier) {
+            const node = searcher.expand(task.path);
+            if (!node) continue;
+            if (node.board) extraBoards.push(node.board);
+            for (let index = 0; index < node.count; index++) next.push({ first: task.first, path: [...task.path, index] });
+          }
+          if (next.length === 0) break;
+          frontier = next;
         }
-      }
-      // Interruptions get up to half the main search's time in all, shared between the two rounds.
-      const phaseDeadline = performance.now() + (limits.seconds / 2) * 1000;
-      const remaining = () => Math.max(1, (phaseDeadline - performance.now()) / 1000);
-      const phase2 = await run(tasks, remaining());
-      // More targets found for a play: try the others too.
-      tasks = [];
-      for (const [id, explored] of phase2) {
-        const info = ids.get(id)!;
-        for (let target = 1; target < (explored.targets ?? 0); target++) {
-          const newId = ids.size;
-          ids.set(newId, { ...info, target });
-          tasks.push({ id: newId, path: best.path.slice(0, info.chance.prefix), play: { code: info.code, at: info.chance.at, target }, limit: INTERRUPTION_NODES });
+        // Take tasks in turns across first actions.
+        const byFirst = firsts.map((_, first) => frontier.filter((task) => task.first === first));
+        const queue: { id: number; first: number; path: number[] }[] = [];
+        for (let round = 0; queue.length < frontier.length; round++) {
+          for (const group of byFirst) if (group[round]) queue.push({ ...group[round], id: queue.length });
         }
-      }
-      const phase3 = tasks.length > 0 ? await run(tasks, remaining()) : new Map<number, Explored>();
-      const all = new Map([...phase2, ...phase3]);
-      for (const { code, found } of chances) {
-        const card = cardOf(code);
-        if (!card) continue;
-        let worst: Interruption | null = null;
-        for (const [id, explored] of all) {
-          const info = ids.get(id)!;
-          if (info.code !== code || (explored.nodes === 0 && !explored.complete)) continue; // never got a turn
-          const board = explored.boards[0] ?? null;
-          const value = board?.value ?? -Infinity;
-          if (!worst || value < (worst.board?.value ?? -Infinity)) worst = { card, opportunities: found.length, after: info.chance.after, board, complete: explored.complete };
+        const taskCounts = byFirst.map((group) => group.length);
+        const taskFirst = queue.map((task) => task.first);
+        await switching;
+        const phase1 = await run(queue.map((task) => ({ id: task.id, path: task.path })), limits.seconds);
+        const results = [...phase1].map(([id, explored]) => ({ first: taskFirst[id], explored }));
+        const result = summarize(firsts, results, taskCounts, extraBoards, states(), (performance.now() - begun) / 1000);
+        const best = result.boards[0];
+        if (interruptions && best && best.path.length > 0 && setup.opponentHand?.length) {
+          // Each hand trap at each of its chances; Infinite Impermanence also at each of its targets.
+          const chances = setup.opponentHand.map((code) => ({ code, found: searcher.opportunities(best.path, code) }));
+          const ids = new Map<number, { code: number; chance: Opportunity; target: number }>();
+          let tasks: Task[] = [];
+          for (const { code, found } of chances) {
+            for (const chance of found) {
+              const id = ids.size;
+              ids.set(id, { code, chance, target: 0 });
+              tasks.push({ id, path: best.path.slice(0, chance.prefix), play: { code, at: chance.at, target: 0 }, limit: INTERRUPTION_NODES });
+            }
+          }
+          // Interruptions get up to half the main search's time in all, shared between the two rounds.
+          const phaseDeadline = performance.now() + (limits.seconds / 2) * 1000;
+          const remaining = () => Math.max(1, (phaseDeadline - performance.now()) / 1000);
+          const phase2 = await run(tasks, remaining());
+          // More targets found for a play: try the others too.
+          tasks = [];
+          for (const [id, explored] of phase2) {
+            const info = ids.get(id)!;
+            for (let target = 1; target < (explored.targets ?? 0); target++) {
+              const newId = ids.size;
+              ids.set(newId, { ...info, target });
+              tasks.push({ id: newId, path: best.path.slice(0, info.chance.prefix), play: { code: info.code, at: info.chance.at, target }, limit: INTERRUPTION_NODES });
+            }
+          }
+          const phase3 = tasks.length > 0 ? await run(tasks, remaining()) : new Map<number, Explored>();
+          const all = new Map([...phase2, ...phase3]);
+          for (const { code, found } of chances) {
+            const card = cardOf(code);
+            if (!card) continue;
+            let worst: Interruption | null = null;
+            for (const [id, explored] of all) {
+              const info = ids.get(id)!;
+              if (info.code !== code || (explored.nodes === 0 && !explored.complete)) continue; // never got a turn
+              const board = explored.boards[0] ?? null;
+              const value = board?.value ?? -Infinity;
+              if (!worst || value < (worst.board?.value ?? -Infinity)) worst = { card, opportunities: found.length, after: info.chance.after, board, complete: explored.complete };
+            }
+            result.interruptions.push(worst ?? { card, opportunities: 0, after: "", board: null, complete: true });
+          }
+          result.seconds = (performance.now() - begun) / 1000;
+          result.states = states();
         }
-        result.interruptions.push(worst ?? { card, opportunities: 0, after: "", board: null, complete: true });
+        return result;
+      } finally {
+        searcher.dispose();
       }
-      result.seconds = (performance.now() - started) / 1000;
-      result.states = states();
-    }
-    return result;
-  } finally {
-    await Promise.all(workers.map((worker) => worker.terminate()));
-  }
+    },
+    async close() {
+      await Promise.all(workers.map((worker) => worker.terminate()));
+    },
+  };
 }
 
-/** Plan the best board for an opening hand, going first. The entry point for the command line and MCP. */
-export async function planText(input: string, handText: string, tiersText: string, limits: { nodes: number; seconds: number }): Promise<string> {
+/** Everything planText and the profile need from a deck: engine data, codes, the endpoint lines. */
+export async function prepare(input: string, tiersText: string) {
   const { cards, deck } = await loadDeck(input);
   const deckCards = [...deck.main, ...deck.extra].map((entry) => entry.card);
   let data = await loadEngineData();
   if (deckCards.some((card) => !engineKnows(card, data))) data = await loadEngineData(300); // maybe added since the last check
   const missing = deckCards.filter((card) => !engineKnows(card, data));
   const code = (card: Card) => [card.id, ...card.altIds].find((id) => data.has(id)) ?? card.id;
+  const tiers = parseTiers(tiersText, deck, cards);
+  // Every card, so tokens and cards the engine brings in from outside the deck still get names; deck cards win.
+  const byCode = new Map<number, Card>();
+  for (const card of [...cards, ...deckCards]) for (const id of [code(card), card.id, ...card.altIds]) byCode.set(id, card);
+  const engine = await startEngine(data);
+  const lines = resolveTiers(tiers, deckCards, archetypesOf(cards));
+  const planner = createPlanner(engine, (id) => byCode.get(id), [...byCode], lines);
+  const extra = deck.extra.flatMap((entry) => Array<number>(entry.count).fill(code(entry.card)));
+  /** The engine setup for a hand drawn from the Main Deck. */
+  const setupFor = (hand: Card[], rest: Card[]): Setup => ({ hand: hand.map(code), main: rest.map(code), extra, opponentHand: Object.values(HAND_TRAPS) });
+  const notes = () => {
+    const libraries = [...engine.missingScripts].filter((name) => !/^c\d+\.lua$/.test(name));
+    return { problems: tiers.problems, missing, libraries };
+  };
+  return { cards, deck, tiers, lines, planner, setupFor, notes, code };
+}
 
+/** Take the named cards out of the Main Deck pile. */
+export function drawNamed(deck: Deck, handText: string): { hand: Card[]; rest: Card[] } {
   const pile = deck.main.flatMap((entry) => Array<Card>(entry.count).fill(entry.card));
   const names = handText.split(/[,，、;；\n]/).map((part) => part.trim()).filter(Boolean);
   if (names.length === 0 || names.length > 6) throw new Error(`起手要写 1～6 张卡，现在是 ${names.length} 张`);
@@ -950,19 +1015,18 @@ export async function planText(input: string, handText: string, tiersText: strin
     }
     return pile.splice(index, 1)[0];
   });
+  return { hand, rest: pile };
+}
 
-  const tiers = parseTiers(tiersText, deck, cards);
-  // Every card, so tokens and cards the engine brings in from outside the deck still get names; deck cards win.
-  const byCode = new Map<number, Card>();
-  for (const card of [...cards, ...deckCards]) for (const id of [code(card), card.id, ...card.altIds]) byCode.set(id, card);
-  const engine = await startEngine(data);
-  const setup: Setup = {
-    hand: hand.map(code), main: pile.map(code), extra: deck.extra.flatMap((entry) => Array<number>(entry.count).fill(code(entry.card))),
-    opponentHand: Object.values(HAND_TRAPS),
-  };
-  const lines = resolveTiers(tiers, deckCards, archetypesOf(cards));
-  const result = await planParallel(engine, setup, (id) => byCode.get(id), [...byCode], lines, limits);
-  // Card scripts that are missing show up as missing cards; Normal Monsters simply have none.
-  const libraries = [...engine.missingScripts].filter((name) => !/^c\d+\.lua$/.test(name));
-  return formatPlan(hand, result, tiers.problems, missing, libraries);
+/** Plan the best board for an opening hand, going first. The entry point for the command line and MCP. */
+export async function planText(input: string, handText: string, tiersText: string, limits: { nodes: number; seconds: number }): Promise<string> {
+  const { deck, planner, setupFor, notes } = await prepare(input, tiersText);
+  try {
+    const { hand, rest } = drawNamed(deck, handText);
+    const result = await planner.plan(setupFor(hand, rest), limits, true);
+    const { problems, missing, libraries } = notes();
+    return formatPlan(hand, result, problems, missing, libraries);
+  } finally {
+    await planner.close();
+  }
 }

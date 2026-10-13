@@ -21,6 +21,7 @@ node scripts/mdcard.mjs deck "https://www.db.yugioh-card.com/yugiohdb/member_dec
 node scripts/mdcard.mjs deck "ydke://…"             # also a .ydk file path, or "-" to read a card list from standard input
 node scripts/mdcard.mjs odds deck.txt --rules rules.txt --change "-1 增殖的G, +1 增援"
 node scripts/mdcard.mjs plan deck.txt --hand "白龙之落胤,灰流丽,无限泡影,深渊之兽 德鲁伊鳞虫,超融合" --tiers tiers.txt
+node scripts/mdcard.mjs profile deck.txt --tiers tiers.txt --change "-1 增殖的G, +1 增援"
 node scripts/mdcard.mjs banlist --status limited1
 node scripts/mdcard.mjs banlist --upcoming        # an announced list that is not in effect yet
 node scripts/mdcard.mjs notes                     # the user's preferences and lessons (see below)
@@ -103,8 +104,10 @@ The score is the value of everything we can use on the opponent's turn: monsters
    - 处理: removes a card on the opponent's turn: banish, destroy, send to the GY, return to the hand or Deck, change to face-down, place in a spell & trap zone. Read the whole effect: Icejade Gymir Aegirine looks like protection but also banishes every copy of the card it chains to.
    - 保护: our cards cannot be targeted, destroyed or affected.
 2. *What can it bring out or add on the opponent's turn?* An effect usable on their turn that Special Summons, adds to the hand, or Synchro or Link Summons. Write `回合外 → <zone> <cards>`: Spright Elf brings a Level 2 from the GY, I:P Masquerena links on their turn, Melffy Wally returns to the hand and summons two Melffy from the Deck, Desert Locusts synchros on their main phase. Such a card is worth what it brings out, followed through as far as it goes (Melffy Catty adds Pinny, Pinny synchros into Locusts, Locusts into Borreload Savage), so a card with nothing of its own can still be the most valuable one on the board.
-3. *Does it fetch an endpoint on our own turn?* (LeVirtue Dragon adding Seventh Tachyon Burst, Melffy of the Forest adding Wally.) That needs no line: the search sees the fetched card.
-4. *Cards none of this describes* (Super Polymerization, which cannot be responded to; Maxx "C"; Nibiru) get 第0级, 1.5级 or a level you argue for, and you ask the user before adding a new one.
+   An endpoint brought out this way counts 1.5 times its level: it was never exposed during our turn, and the engine that makes it was not spent early.
+3. *When should it come out?* Some endpoints are meant for the opponent's turn: a one-shot negate that tributes or banishes itself (Herald of the Arc Light, Borreload Savage Dragon made by Desert Locusts), or anything the deck's off-turn engines make (Pinny's synchro, I:P's link). Mark them `回合外出`. Made on our own turn instead, they count half, because that spends the engine that should have worked on the opponent's turn and leaves the card exposed all turn. Boards that sit and wait (Baronne, Abyssgaios, Dragite) need no mark.
+4. *Does it fetch an endpoint on our own turn?* (LeVirtue Dragon adding Seventh Tachyon Burst, Melffy of the Forest adding Wally.) That needs no line: the search sees the fetched card.
+5. *Cards none of this describes* (Super Polymerization, which cannot be responded to; Maxx "C"; Nibiru) get 第0级, 1.5级 or a level you argue for, and you ask the user before adding a new one.
 
 Each level is worth far more than the next, but not infinitely more:
 
@@ -135,13 +138,16 @@ Write one line per card, with one level and, where it applies, what it brings ou
 无限泡影：第二级
 卫星闪灵·淘气精灵：保护；回合外 → 墓地 2星 怪兽
 I：P百变莱娜：回合外 → 额外 连接 怪兽；要 另有 怪兽
+虹光之宣告者：第一级；回合外出
 童话动物·小小袋鼠：回合外 → 卡组 「童话动物」怪兽；带 2 只；在场上或手里
+童话动物·小猫：回合外 → 卡组 兽族 怪兽 到手；在场上或手里
 童话动物·小海豹：回合外 → 额外 同调 怪兽；在手里
 ```
 
 - `×2`: it can do it twice on the opponent's turn through separate effects (Clear Wing's ① and ② are each once per turn).
-- `回合外 → <zone> <cards>`: zone is 墓地, 卡组, 额外, 手里 or 场上; `带 N 只` when it brings more than one. The tool checks the zone in the actual position: Elf is worth nothing with no valued Level 2 in the GY. A card brought out this way is summoned on the opponent's turn, so its 召唤时 effect counts and its 自己回合 effect does not.
+- `回合外 → <zone> <cards>`: zone is 墓地, 卡组, 额外, 手里 or 场上; `带 N 只` when it brings more than one; `到手` at the end when the cards are added to the hand rather than summoned (Melffy Catty adds a Beast to the hand, so Pinny can then jump out of the hand; Spright Elf summons to the field, where Pinny's hand effect is useless). The tool checks the zone in the actual position: Elf is worth nothing with no valued Level 2 in the GY. A card brought out this way is summoned on the opponent's turn, so its 召唤时 effect counts and its 自己回合 effect does not.
 - `自己回合`: its effect works only on our own turn (an Ignition Effect). Going first the opponent has nothing to hit then, so it counts a flat 1 for our next turn (Three Champions on the board is better than nothing, but mostly it is a step in the route).
+- `回合外出`: best made on the opponent's turn; on our field at the end of our turn it counts half.
 - `召唤时`: its effect works only when it is summoned (Chaos Angel). Going first that moment passes with nothing to hit, so it counts 0, unless it is brought out on the opponent's turn.
 - Where it counts: by default on the field. `在手里` for hand traps. Traps, Quick-Play Spells and Infinite Impermanence must be set to be used on the opponent's turn, so they count on the field and are set automatically before the turn ends. `在墓地`, `在场上或墓地`, `在场上或手里` as the text says.
 - `要 另有 <卡>`: it needs another card in the hand or on the field, such as a tribute or a cost. `要 额外有 <卡>`: it summons that later, so it counts only while the card is still there. `要 墓地有 <卡>`: it works only with such a card in the GY.
@@ -151,6 +157,12 @@ I：P百变莱娜：回合外 → 额外 连接 怪兽；要 另有 怪兽
 How the search works, so you can explain its result: it starts going first with the opponent doing nothing, never activates the effects of cards valued in the hand on our own turn, never plays cards drawn by effects (they are random) except as a discard, sets the valued spells and traps, ends the turn, resolves the End Phase, and scores what the opponent faces. When two boards score the same, the shorter route comes first and the others are listed; mention the ties. The report lists the best board with its route, other boards, the fallback under each hand trap, and each first action with whether its branch was searched completely. If a branch hit the limit, say that a better board may exist there. The fallbacks assume we commit to the best route until the interruption and play freely after it; they do not consider choosing a different route because the opponent might hold that card.
 
 Show the user the tier lines together with the result and let them correct the tiers. Present the route as the engine found it; do not add steps it did not take.
+
+## Deck profile
+
+`profile` answers what the deck does on average: it draws opening hands at random by their real probability (100 by default), plans each with the engine for a few seconds (5 by default, no interruptions), and reports the average board value, how many hands end with a first-level negate, a weaker board, or only hand traps, the most common end boards, the worst hands, and what each card adds (the average value of hands holding it minus the average without it, with how often those hands brick). It takes the same endpoint list as `plan`. `--change "-1 A, +1 B"` runs the changed deck on the same sample and shows both. Hands are cached per deck and endpoint list, so a rerun or a comparison only plans what is new. 100 hands take about 8 minutes; progress is printed as it goes. The average has an error of about ±1, so treat a difference under 2 between two decks as noise and run more hands when it matters.
+
+Use `odds` for how often the deck can start at all (exact, instant, from rules you write) and `profile` for how good the boards are (sampled, slow, from the engine). A card with a large negative contribution is not necessarily bad: hand traps lower the average board because they take the slot of a starter while their own value only shows on the opponent's turn.
 
 ## The user's notes
 

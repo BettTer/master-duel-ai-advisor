@@ -15,6 +15,7 @@ export interface Engine {
   /** Run until the engine needs a decision; returns that message, or null when the duel ended. */
   advance(duel: OcgDuelHandle, onMessage?: (message: OcgMessage) => void): OcgMessage | null;
   respond(duel: OcgDuelHandle, response: OcgResponse): void;
+  destroy(duel: OcgDuelHandle): void;
   /** Cards in one of player 0's locations. */
   cards(duel: OcgDuelHandle, location: OcgLocation): { code: number; position: number }[];
   /** Copy the engine's state, into `into` when it has the right size (reusing memory), otherwise a new array. */
@@ -108,6 +109,7 @@ export async function startEngine(data: Map<number, EngineCard>): Promise<Engine
       }
     },
     respond: (duel, response) => lib.duelSetResponse(duel, response),
+    destroy: (duel) => lib.destroyDuel(duel),
     cards: (duel, location) =>
       (lib.duelQueryLocation(duel, { controller: 0, location, flags: 3 } as any).filter(Boolean) as any[])
         .filter((info) => info.code).map((info) => ({ code: info.code, position: info.position })),
