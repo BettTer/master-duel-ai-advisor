@@ -9,6 +9,7 @@ import { kvGet, kvSet } from "./data/db.ts";
 import { deleteDeck, listDecks, newDeck, saveDeck, type SavedDeck } from "./data/store.ts";
 import { prepareDeck, type DeckPlanner } from "./engine/planner.ts";
 import { SUBS, parseRoute, readShared, routeHash, shareLink, type Route, type Sub } from "./state.ts";
+import { getLang, setLang, t, sep } from "./i18n.ts";
 import { DeckView, analyzeDeck, type DeckAnalysis } from "./ui/DeckPage.tsx";
 import { HandPage } from "./ui/HandPage.tsx";
 import { LibraryPage } from "./ui/LibraryPage.tsx";
@@ -28,7 +29,8 @@ interface Open {
 
 export function App() {
   const [data, setData] = useState<CardData | null>(null);
-  const [status, setStatus] = useState("加载卡片数据…");
+  const [status, setStatus] = useState(t("加载卡片数据…"));
+  const [lang, setLangState] = useState(getLang());
   const [route, setRoute] = useState<Route>(() => parseRoute(location.hash));
   const [decks, setDecks] = useState<SavedDeck[]>([]);
   const [open, setOpen] = useState<Open | null>(null);
@@ -60,7 +62,7 @@ export function App() {
       const shared = readShared(location.hash);
       if (shared.deck) {
         const existing = library.find((deck) => deck.text === shared.deck);
-        const saved = existing ?? newDeck(`分享的卡组 ${library.length + 1}`, shared.deck);
+        const saved = existing ?? newDeck(`${t("分享的卡组")} ${library.length + 1}`, shared.deck);
         if (!existing) {
           await saveDeck(saved);
           setDecks(await listDecks());
@@ -68,7 +70,7 @@ export function App() {
         if (shared.hand) saved.hand = shared.hand;
         await openDeck(saved, loaded, shared.hand ? "hand" : "overview");
       }
-    }).catch((error) => setStatus(`加载失败：${error instanceof Error ? error.message : error}`));
+    }).catch((error) => setStatus(`${t("加载失败：")}${error instanceof Error ? error.message : error}`));
   }, []);
 
   // Open the deck the route names, when it is not open yet.
@@ -125,13 +127,13 @@ export function App() {
   async function plan() {
     if (!data || !open) return;
     setBusy(true);
-    setProgress("准备引擎…");
+    setProgress(t("准备引擎…"));
     try {
       const planner = await plannerFor(open);
       const rest = open.deck.main.flatMap((entry) => Array<Card>(entry.count).fill(entry.card));
       for (const card of open.hand) rest.splice(rest.indexOf(card), 1);
       const setup = planner.setupFor(open.hand, rest);
-      setProgress(`搜索中，最多 ${seconds} 秒，之后再试对手的打断…`);
+      setProgress(`${t("搜索中…")} ${seconds}${t(" 秒")}`);
       const result: PlanResult = await planner.planner.plan(setup, { nodes: 1_000_000, seconds }, true);
       const best = result.boards[0];
       const traces = {
@@ -141,14 +143,14 @@ export function App() {
       const byCode = new Map<number, Card>();
       for (const card of data.cards) for (const id of [card.id, ...card.altIds]) byCode.set(id, card);
       const notes = [...planner.tiers.problems];
-      if (planner.missing.length > 0) notes.push(`规则引擎还没有这些卡的数据：${planner.missing.map((card) => card.cn || card.en).join("、")}`);
+      if (planner.missing.length > 0) notes.push(`${t("规则引擎还没有这些卡的数据：")}${planner.missing.map((card) => card.cn || card.en).join(sep())}`);
       const view: RouteView = { hand: [...open.hand], result, traces, cardOf: (code) => byCode.get(code), notes };
       setOpen((current) => (current ? { ...current, route: view } : current));
       await update({ hand: open.hand.map((card) => card.id) });
       go({ page: "deck", id: open.saved.id, sub: "route" });
       setProgress("");
     } catch (error) {
-      setProgress(`出错：${error instanceof Error ? error.message : error}`);
+      setProgress(`${t("出错：")}${error instanceof Error ? error.message : error}`);
     } finally {
       setBusy(false);
     }
@@ -164,12 +166,12 @@ export function App() {
       const result = await profileDeck(open.deck, planner.planner, planner.lines, planner.setupFor, {
         hands, seconds: perHand, seed: 20261013, label: open.saved.name,
         cache: { get: (hand) => stored[hand] ?? null, set: (hand, value) => { stored[hand] = value; void kvSet(key, stored); } },
-        progress: (done, total, hand) => setProgress(`${done}/${total}：${hand.cards.map((card) => card.cn || card.en).join("、")} → ${hand.board?.value ?? "无"}`),
+        progress: (done, total, hand) => setProgress(`${done}/${total}：${hand.cards.map((card) => card.cn || card.en).join(sep())} → ${hand.board?.value ?? t("无")}`),
       });
       setOpen((current) => (current ? { ...current, profile: result } : current));
       setProgress("");
     } catch (error) {
-      setProgress(`出错：${error instanceof Error ? error.message : error}`);
+      setProgress(`${t("出错：")}${error instanceof Error ? error.message : error}`);
     } finally {
       setBusy(false);
     }
@@ -182,10 +184,11 @@ export function App() {
       <header>
         <div className="brand">Master Duel <span>AI Advisor</span></div>
         <nav>
-          <button className={route.page !== "lookup" ? "active" : ""} onClick={() => go({ page: "library" })}>卡组</button>
-          <button className={route.page === "lookup" ? "active" : ""} onClick={() => go({ page: "lookup" })}>查卡</button>
+          <button className={route.page !== "lookup" ? "active" : ""} onClick={() => go({ page: "library" })}>{t("卡组")}</button>
+          <button className={route.page === "lookup" ? "active" : ""} onClick={() => go({ page: "lookup" })}>{t("查卡")}</button>
         </nav>
-        <label className="toggle"><input type="checkbox" checked={images} onChange={(event) => setImages(event.target.checked)} /> 卡图</label>
+        <label className="toggle"><input type="checkbox" checked={images} onChange={(event) => setImages(event.target.checked)} /> {t("卡图")}</label>
+        <button className="ghost small lang" onClick={() => { const next = lang === "zh" ? "en" : "zh"; setLang(next); setLangState(next); }}>{lang === "zh" ? "EN" : "中文"}</button>
       </header>
       {status && <p className="status">{status}</p>}
       {data && route.page === "library" && <LibraryPage decks={decks} onImport={importDeck} onOpen={(id) => go({ page: "deck", id, sub: "overview" })}
@@ -195,10 +198,10 @@ export function App() {
       {data && route.page === "deck" && inDeck && (
         <>
           <div className="workspace-head">
-            <button className="ghost small" onClick={() => go({ page: "library" })}>← 我的卡组</button>
+            <button className="ghost small" onClick={() => go({ page: "library" })}>{t("← 我的卡组")}</button>
             <h2>{inDeck.saved.name}</h2>
-            <div className="tabs">{SUBS.map((item) => <button key={item.id} className={sub === item.id ? "tab active" : "tab"} onClick={() => go({ page: "deck", id: inDeck.saved.id, sub: item.id })}>{item.label}</button>)}</div>
-            <button className="ghost small" onClick={() => { navigator.clipboard?.writeText(shareLink(inDeck.deck, inDeck.hand)); setProgress("链接已复制"); }}>复制分享链接</button>
+            <div className="tabs">{SUBS.map((item) => <button key={item.id} className={sub === item.id ? "tab active" : "tab"} onClick={() => go({ page: "deck", id: inDeck.saved.id, sub: item.id })}>{t(item.label)}</button>)}</div>
+            <button className="ghost small" onClick={() => { navigator.clipboard?.writeText(shareLink(inDeck.deck, inDeck.hand)); setProgress(t("链接已复制")); }}>{t("复制分享链接")}</button>
           </div>
           {sub === "overview" && <DeckView data={data} deck={inDeck.deck} analysis={inDeck.analysis} images={images} />}
           {sub === "hand" && <HandPage data={data} deck={inDeck.deck} hand={inDeck.hand} setHand={(hand) => setOpen((current) => (current ? { ...current, hand } : current))} tiers={inDeck.saved.tiers}
@@ -208,8 +211,8 @@ export function App() {
             onPickHand={(cards) => { setOpen((current) => (current ? { ...current, hand: cards } : current)); go({ page: "deck", id: inDeck.saved.id, sub: "hand" }); }} />}
         </>
       )}
-      {data && route.page === "deck" && !inDeck && <p className="status">打开卡组…</p>}
-      <footer className="muted">卡片数据来自百鸽（ygocdb.com）、Master Duel Meta、Project Ignis；规则引擎是 EDOPro 的核心。卡文和卡图的版权属于 KONAMI。{data?.builtAt && ` 数据构建于 ${data.builtAt.slice(0, 10)}。`}</footer>
+      {data && route.page === "deck" && !inDeck && <p className="status">{t("打开卡组…")}</p>}
+      <footer className="muted">{t("卡片数据来自百鸽（ygocdb.com）、Master Duel Meta、Project Ignis；规则引擎是 EDOPro 的核心。卡文和卡图的版权属于 KONAMI。")}{data?.builtAt && `${t(" 数据构建于 ")}${data.builtAt.slice(0, 10)}.`}</footer>
     </>
   );
 }

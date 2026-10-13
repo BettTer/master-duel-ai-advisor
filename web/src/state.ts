@@ -2,6 +2,7 @@
 import type { Deck } from "../../src/deck.ts";
 import type { Card } from "../../src/merge.ts";
 import { LEVELS } from "../../src/search.ts";
+import { getLang, t } from "./i18n.ts";
 
 export type Sub = "overview" | "hand" | "route" | "profile";
 export const SUBS: { id: Sub; label: string }[] = [
@@ -51,8 +52,8 @@ export function shareLink(deck: Deck, hand: Card[]): string {
 
 /** Colors for endpoint levels, by index into LEVELS. */
 export const LEVEL_COLORS = ["#f2c14e", "#e5484d", "#b07cf5", "#f0883e", "#3dd6c8", "#3dd6c8", "#8c96ad", "#5aa9ff"];
-export const levelName = (level: number) => (level >= 0 ? LEVELS[level].name : "");
+export const levelName = (level: number) => (level >= 0 ? t(LEVELS[level].name) : "");
 export const levelColor = (level: number) => (level >= 0 ? LEVEL_COLORS[level] : "#8c96ad");
 
 export const imageUrl = (id: number) => `https://cdn.233.momobako.com/ygopro/pics/${id}.jpg`;
-export const cardName = (card: Card) => card.cn || card.en || String(card.id);
+export const cardName = (card: Card) => (getLang() === "en" ? card.en || card.cn : card.cn || card.en) || String(card.id);

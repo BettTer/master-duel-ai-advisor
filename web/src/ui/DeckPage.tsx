@@ -5,6 +5,8 @@ import { archetypeLookup, zhKinds } from "../../../src/query.ts";
 import { missingTargets, type Reference } from "../../../src/refs.ts";
 import type { CardData } from "../data/cards.ts";
 import { cardName } from "../state.ts";
+import { getLang, t, translateReport, sep } from "../i18n.ts";
+import { describeIssue, describeLock, describeReference } from "../describe.ts";
 import { CardChip } from "./CardChip.tsx";
 
 export interface DeckAnalysis {
@@ -40,13 +42,13 @@ export function DeckWall({ deck, data, onPick, images }: { deck: Deck; data: Car
     <div className="wall">
       {groupMain(deck.main).map(([kind, entries]) => (
         <div key={kind} className="wall-group">
-          <h4>{kind} <span className="muted">{size(entries)}</span></h4>
+          <h4>{t(kind)} <span className="muted">{size(entries)}</span></h4>
           <div className="wall-cards">{entries.map(({ card, count }) => <CardChip key={card.id} card={card} count={count} banlist={data.banlist} onClick={onPick && (() => onPick(card))} images={images} />)}</div>
         </div>
       ))}
       {deck.extra.length > 0 && (
         <div className="wall-group">
-          <h4>额外卡组 <span className="muted">{size(deck.extra)}</span></h4>
+          <h4>{t("额外卡组")} <span className="muted">{size(deck.extra)}</span></h4>
           <div className="wall-cards">{deck.extra.map(({ card, count }) => <CardChip key={card.id} card={card} count={count} banlist={data.banlist} images={images} />)}</div>
         </div>
       )}
@@ -56,28 +58,33 @@ export function DeckWall({ deck, data, onPick, images }: { deck: Deck; data: Car
 
 export function DeckView({ data, deck, analysis, images }: { data: CardData; deck: Deck; analysis: DeckAnalysis; images: boolean }) {
   const lockName = (lock: LockReport["lock"]) => `「${cardName(lock.card)}」${lock.effect}`;
+  const byCn = new Map(data.cards.map((card) => [card.cn, card]));
+  const nameOf = (cn: string) => { const card = byCn.get(cn); return card ? cardName(card) : cn; };
+  const report = (text: string) => translateReport(text, nameOf);
+  const en = getLang() === "en";
+  const issue = (text: string) => (en ? describeIssue(text, nameOf) : text);
   return (
     <div className="page">
       <section className="panel">
-        <h2>卡表 <span className="muted">主 {deck.main.reduce((sum, entry) => sum + entry.count, 0)} · 额外 {deck.extra.reduce((sum, entry) => sum + entry.count, 0)}</span></h2>
+        <h2>{t("卡表")} <span className="muted">{t("主")} {deck.main.reduce((sum, entry) => sum + entry.count, 0)} · {t("额外")} {deck.extra.reduce((sum, entry) => sum + entry.count, 0)}</span></h2>
         <DeckWall deck={deck} data={data} images={images} />
       </section>
       <section className="panel">
-        <h2>检查</h2>
-        {analysis.issues.length === 0 ? <p className="ok">没有发现张数、禁限或实装方面的问题。</p> : <ul className="issues">{analysis.issues.map((issue, index) => <li key={index}>{issue}</li>)}</ul>}
-        {deck.guessed.length > 0 && <p className="muted">按部分卡名认的，请确认：{deck.guessed.join("；")}</p>}
-        {deck.unknown.length > 0 && <p className="error">没认出来：{deck.unknown.join("；")}</p>}
+        <h2>{t("检查")}</h2>
+        {analysis.issues.length === 0 ? <p className="ok">{t("没有发现张数、禁限或实装方面的问题。")}</p> : <ul className="issues">{analysis.issues.map((text, index) => <li key={index}>{issue(text)}</li>)}</ul>}
+        {deck.guessed.length > 0 && <p className="muted">{t("按部分卡名认的，请确认：")}{deck.guessed.join("；")}</p>}
+        {deck.unknown.length > 0 && <p className="error">{t("没认出来：")}{deck.unknown.join("；")}</p>}
         {analysis.locks.locks.length > 0 && (
           <>
-            <h3>额外卡组的锁</h3>
-            <ul>{analysis.locks.locks.map((report, index) => (
-              <li key={index}><b>{lockName(report.lock)}</b>：{report.lock.text}{report.blocked.length > 0 && <span className="muted"> → 额外里出不来：{report.blocked.map(cardName).join("、")}</span>}</li>
+            <h3>{t("额外卡组的锁")}</h3>
+            <ul>{analysis.locks.locks.map((item, index) => (
+              <li key={index}>{en ? describeLock(item.lock, cardName) : <><b>{lockName(item.lock)}</b>：{item.lock.text}</>}{item.blocked.length > 0 && <span className="muted">{t(" → 额外里出不来：")}{item.blocked.map(cardName).join(sep())}</span>}</li>
             ))}</ul>
             {analysis.locks.pairs.length > 0 && (
               <>
-                <h3>同一回合一起用</h3>
+                <h3>{t("同一回合一起用")}</h3>
                 <ul>{analysis.locks.pairs.map((pair, index) => (
-                  <li key={index}>{lockName(pair.first)} ＋ {lockName(pair.second)}：{pair.remaining.length === 0 ? <b className="error">额外卡组一只都出不来</b> : <>额外只剩 {pair.remaining.map(cardName).join("、")}</>}</li>
+                  <li key={index}>{report(lockName(pair.first))} ＋ {report(lockName(pair.second))}: {pair.remaining.length === 0 ? <b className="error">{t("额外卡组一只都出不来")}</b> : <>{t("额外只剩 ")}{pair.remaining.map(cardName).join(sep())}</>}</li>
                 ))}</ul>
               </>
             )}
@@ -85,8 +92,8 @@ export function DeckView({ data, deck, analysis, images }: { data: CardData; dec
         )}
         {analysis.missing.length > 0 && (
           <>
-            <h3>可能没有目标 <span className="muted">按卡名和字段判断，请确认</span></h3>
-            <ul>{analysis.missing.map((reference, index) => <li key={index}><b>「{cardName(reference.card)}」{reference.effect}</b>：{reference.text}</li>)}</ul>
+            <h3>{t("可能没有目标")} <span className="muted">{t("按卡名和字段判断，请确认")}</span></h3>
+            <ul>{analysis.missing.map((reference, index) => <li key={index}>{en ? describeReference(reference, cardName) : <><b>「{cardName(reference.card)}」{reference.effect}</b>：{reference.text}</>}</li>)}</ul>
           </>
         )}
       </section>
