@@ -27,7 +27,7 @@ const EN: Record<string, string> = {
   // editor
   "新建空卡组": "New empty deck", "空卡组。在右边找卡，拖过来或者点一下。": "Empty deck. Find cards on the right and drag or click them.", "主卡组": "Main Deck", "找卡": "Find cards", "卡文里的词": "Words in the card text", " 张（最多显示 60）": " cards (60 shown at most)",
   "只显示 MD 已实装的卡。拖到左边加入卡组。": "Only cards in Master Duel. Drag a card to the left to add it.",
-  "从右边把卡拖进来加一张；卡上的 ＋ － 或右键改张数。": "Drag a card in from the right to add a copy; use + / − on a card, or right-click, to change the count.",
+  "从右边把卡拖进来或点一下加一张；左键加、右键减，悬停的详情里也有 ＋ －。": "Drag a card in from the right, or click it, to add a copy; left-click adds, right-click removes, and the hover details have + / − too.",
   "禁止卡": "Forbidden", " 最多 ": ": at most ", " 张": "", "主卡组已经 60 张": "The Main Deck already has 60 cards", "额外卡组已经 15 张": "The Extra Deck already has 15 cards",
   // deck view
   "卡表": "Deck list", "主": "Main", "额外": "Extra", "怪兽": "Monsters", "魔法": "Spells", "陷阱": "Traps", "额外卡组": "Extra Deck", "检查": "Checks",
@@ -51,8 +51,12 @@ const EN: Record<string, string> = {
   "在「起手」页规划一手起手后，这里显示路线。": "Plan a hand on the Hand tab; the route appears here.", "最大场": "Best board", "被「": "Under ", "」打断": "",
   "这条路线上没有发动的时机。": "No chance to use it on this route.", " 个时机里最狠的：在「": " chances; the worst is after ", "」后发动": "",
   "（没搜完）": " (search cut short)", "发动后做不出任何场。": "Nothing can be done after it.", "路线": "Route", "终场": "End board", "妥协场": "Fallback board",
+  "取消固定": "Unpin", "鼠标移到节点上看那一刻的场面，点一下固定。": "Hover a node to see the position at that moment; click to pin it.",
+  "对手在这里发动": "The opponent activates here", "对手回合一开始就发动了。": "The opponent uses it as soon as our turn starts.", "这一步之后：": "After this step: ", "整条路线下来：": "Over the whole route: ",
+  "新进": "in", "离开": "out", " 共 ": " total ", "空": "empty", "只看最好的 5 条": "Only the best 5", "还有 ": "", " 条路线": " more routes", "不同的终场 ": "", " 种。": " distinct end boards.",
+  "没有找到任何能做的动作。": "Nothing can be done with this hand.",
   "价值 ": "Value ", "没有怪兽": "no monsters", " ｜ 后场 ": " | backrow ", "场上": "Field", "墓地": "GY", "手里": "Hand", "对手回合带出": "Brought out on their turn",
-  "（自己回合）": " (own turn)", "对手抽了 ": "Opponent drew ", " 张（每张扣 ": " (each costs ", "）": ")", "其他的场": "Other boards", "（没有怪兽）": "(no monsters)",
+  "（自己回合）": " (own turn)", "对手抽了 ": "Opponent drew ", " 只身体 +": " bodies +", " 张（每张扣 ": " (each costs ", "）": ")", "其他的场": "Other boards", "（没有怪兽）": "(no monsters)",
   "，后场 ": ", backrow ", "第一步的每种选择": "Each first action", "（不发动，继续）": "(pass)", "全部搜完（": "searched fully (", " 个节点）": " nodes)",
   "搜了 ": "searched ", " 个节点，没搜完": " nodes, cut short", "，最好 ": ", best ", "共 ": "", " 个不同局面，": " positions, ", " 秒。": " s.",
   "开局": "Start", "不发动，继续": "Pass", "起": "0", "手": "Hand", "场": "Field", "后场": "Backrow", "墓": "GY", "除外": "Banished",
@@ -72,7 +76,7 @@ const EN: Record<string, string> = {
   // lookup
   "卡名，中、英、日都行": "Name, in Chinese, English or Japanese", "卡文里的词，比如 调整＋调整以外的怪兽1只以上": "Words in the card text, e.g. 调整＋调整以外的怪兽1只以上",
   "种类": "Kind", "等级：12、4-8、8-": "Level: 12, 4-8, 8-", " 张（最多显示 80）": " cards (80 shown at most)", "只显示 MD 已实装的卡。": "Only cards in Master Duel are shown.",
-  "未实装": "not in MD", "禁止": "Forbidden", "限制 1": "Limited", "准限制 2": "Semi-Limited", "无限制": "Unlimited", "未知": "unknown", "百鸽（含裁定）": "ygocdb (with rulings)",
+  "未实装": "not in MD", "禁止": "Forbidden", "限制 1": "Limited", "准限制 2": "Semi-Limited", "无限制": "Unlimited", "手卡": "Hand", "未知": "unknown", "百鸽（含裁定）": "ygocdb (with rulings)",
   "调整": "Tuner", "融合": "Fusion", "同调": "Synchro", "超量": "Xyz", "连接": "Link", "仪式": "Ritual", "灵摆": "Pendulum", "速攻": "Quick-Play", "永续": "Continuous", "场地": "Field Spell", "装备": "Equip", "反击": "Counter",
   "禁": "F", "限1": "L1", "准": "SL",
 };

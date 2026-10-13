@@ -4,7 +4,7 @@ import { readDeck, type Deck } from "../../src/deck.ts";
 import { draftTiers } from "../../src/draft.ts";
 import type { Card } from "../../src/merge.ts";
 import { profileDeck, type Profile } from "../../src/profile.ts";
-import type { PlanResult, TraceStep } from "../../src/search.ts";
+import type { PlanResult } from "../../src/search.ts";
 import { loadCardData, type CardData } from "./data/cards.ts";
 import { kvGet, kvSet } from "./data/db.ts";
 import { deleteDeck, listDecks, newDeck, saveDeck, type SavedDeck } from "./data/store.ts";
@@ -18,7 +18,7 @@ import { HandPage } from "./ui/HandPage.tsx";
 import { LibraryPage } from "./ui/LibraryPage.tsx";
 import { LookupPage } from "./ui/LookupPage.tsx";
 import { ProfilePage } from "./ui/ProfilePage.tsx";
-import { RoutePage, type RouteView } from "./ui/RoutePage.tsx";
+import { RoutePage, TRACED_ROUTES, type RouteView } from "./ui/RoutePage.tsx";
 
 /** A deck opened in the workspace: the saved record, the parsed deck, and what has been computed for it. */
 interface Open {
@@ -87,9 +87,14 @@ export function App() {
   async function openDeck(saved: SavedDeck, loaded: CardData, sub: Sub) {
     const deck = await readDeck(saved.text, loaded.cards);
     deck.name = saved.name;
-    // A deck without an endpoint list gets a draft from the card text first; the user corrects it from there.
-    if (!saved.tiers.trim()) {
-      saved = { ...saved, tiers: draftTiers(deck) };
+    // A deck without an endpoint list gets a draft from the card text; the user corrects it from there. While the
+    // list is still that draft, untouched, it follows the draft rules as they improve.
+    const draft = draftTiers(deck);
+    const sameLines = (a: string, b: string) => JSON.stringify(a.split("\n").map((line) => line.trim()).filter(Boolean).sort()) === JSON.stringify(b.split("\n").map((line) => line.trim()).filter(Boolean).sort());
+    // Decks saved before the draft was recorded: the old draft had the same lines, unsorted and without 要 另有.
+    const untouched = !saved.tiers.trim() || saved.tiers === saved.draft || (saved.draft === undefined && sameLines(saved.tiers, draft.replace(/；要 另有 [^\n]*/g, "")));
+    if (untouched && (saved.tiers !== draft || saved.draft !== draft)) {
+      saved = { ...saved, tiers: draft, draft };
       await saveDeck(saved);
       setDecks(await listDecks());
     }
@@ -144,9 +149,8 @@ export function App() {
       const setup = planner.setupFor(open.hand, rest);
       setProgress(`${t("搜索中…")} ${seconds}${t(" 秒")}`);
       const result: PlanResult = await planner.planner.plan(setup, { nodes: 1_000_000, seconds }, true);
-      const best = result.boards[0];
       const traces = {
-        main: best ? planner.planner.trace(setup, best.path) : [] as TraceStep[],
+        boards: result.boards.slice(0, TRACED_ROUTES).map((board) => planner.planner.trace(setup, board.path)),
         interruptions: result.interruptions.map((item) => (item.board && item.play ? planner.planner.trace(setup, item.board.path, item.play) : null)),
       };
       const byCode = new Map<number, Card>();

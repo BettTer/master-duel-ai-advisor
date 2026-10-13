@@ -4,7 +4,7 @@ import type { Card } from "./merge.ts";
 import { SECTIONS, type Deck, type Section } from "./deck.ts";
 import type { Lock, LockPair, LockReport } from "./locks.ts";
 import { groupMatches, type Group, type Odds, type OddsReport, type Rules } from "./odds.ts";
-import { DRAW_PENALTY, LEVELS, type Board, type PlanResult } from "./search.ts";
+import { BODY_VALUE, DRAW_PENALTY, LEVELS, type Board, type PlanResult } from "./search.ts";
 import type { HandResult, Profile } from "./profile.ts";
 import type { Reference } from "./refs.ts";
 import { findCards, inMasterDuel, zhKinds } from "./query.ts";
@@ -280,7 +280,7 @@ export function formatPlan(hand: Card[], result: PlanResult, problems: string[],
   const [best, ...others] = result.boards;
   if (!best) lines.push("", "没有找到任何能做的动作。");
   else {
-    lines.push("", `最大场：${fieldText(best)}`, `  价值 ${best.value}`);
+    lines.push("", `最大场：${fieldText(best)}`, `  价值 ${best.value}${best.field.length > 0 ? `（含 ${best.field.length} 只身体 +${best.field.length * BODY_VALUE}）` : ""}`);
     for (const place of ["场上", "墓地", "手里", "带出"] as const) {
       const items = best.counted.filter((item) => item.place === place);
       if (items.length === 0) continue;
@@ -301,7 +301,8 @@ export function formatPlan(hand: Card[], result: PlanResult, problems: string[],
       if (opportunities === 0) { lines.push(`  ${name}：这条路线上没有发动的时机`); continue; }
       if (!board) { lines.push(`  ${name}：在「${after}」后发动，之后做不出任何场`); continue; }
       const draws = board.draws > 0 ? `，对手抽了 ${board.draws} 张（每张扣 ${DRAW_PENALTY}）` : "";
-      lines.push(`  ${name}（${opportunities} 个时机）：在「${after}」后发动${draws} → 妥协场 ${fieldText(board)}，价值 ${board.value}${complete ? "" : "（没搜完）"}`);
+      const when = after === "" ? "回合一开始就发动" : `在「${after}」后发动`;
+      lines.push(`  ${name}（${opportunities} 个时机）：${when}${draws} → 妥协场 ${fieldText(board)}，价值 ${board.value}${complete ? "" : "（没搜完）"}`);
       lines.push(...routeLines(board.steps).map((line) => `  ${line}`));
     }
   }

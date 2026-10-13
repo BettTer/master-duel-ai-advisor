@@ -39,6 +39,9 @@ export function draftTiers(deck: Deck): string {
         const rank = (value: string) => ["第一级", "第二级", "2.5级"].indexOf(value);
         if (level === "" || rank(next) < rank(level)) level = next;
         if (!opponentTurn(effect) && ownTurnOnly(effect)) note = "；自己回合";
+        // Paid for with, or needing, another card of its archetype (再世之导神 史莫特): the planner must have both.
+        const other = effect.match(/这张卡以外的(?:1张)?「([^」]+)」(?:卡|怪兽)/);
+        if (other && !note.includes("要 另有")) note += `；要 另有 「${other[1]}」卡`;
       } else if (level === "" && /对方场上|对方的?(场上|手卡|墓地)/.test(effect) && /除外|破坏|送去墓地|回到手卡|回到卡组|里侧/.test(effect) && opponentTurn(effect)) {
         level = "第三级";
         if (ownTurnOnly(effect)) note = "；自己回合";
@@ -47,5 +50,8 @@ export function draftTiers(deck: Deck): string {
     if (level === "") continue;
     lines.push(`${name}：${level}${note}`);
   }
-  return lines.join("\n");
+  // Strongest first: 第0级, 第一级, 1.5级, 第二级, …
+  const order = ["第0级", "第一级", "1.5级", "第二级", "2.5级", "软康", "第三级", "保护"];
+  const rank = (line: string) => order.findIndex((level) => line.split("：")[1]?.startsWith(level));
+  return lines.sort((a, b) => rank(a) - rank(b)).join("\n");
 }

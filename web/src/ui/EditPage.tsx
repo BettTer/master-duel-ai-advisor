@@ -47,11 +47,12 @@ export function EditPage({ data, deck, onChange, images }: { data: CardData; dec
   const wall = (entries: DeckEntry[]) => entries.map(({ card, count }) => (
     <CardChip key={card.id} card={card} count={count} banlist={data.banlist} images={images} onAdd={() => change(card, 1)} onRemove={() => change(card, -1)} />
   ));
+  const inDeck = (card: Card) => [...deck.main, ...deck.extra].find((entry) => entry.card.id === card.id)?.count;
   return (
     <div className="page edit">
       <section className="panel edit-deck" onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; }} onDrop={onDrop}>
         <h2>{t("编辑")} <span className="muted">{t("主")} {size(deck.main)} · {t("额外")} {size(deck.extra)}</span></h2>
-        <p className="muted">{t("从右边把卡拖进来加一张；卡上的 ＋ － 或右键改张数。")} {message && <span className="error">{message}</span>}</p>
+        <p className="muted">{t("从右边把卡拖进来或点一下加一张；左键加、右键减，悬停的详情里也有 ＋ －。")} {message && <span className="error">{message}</span>}</p>
         {deck.main.length === 0 && deck.extra.length === 0 && <p className="muted">{t("空卡组。在右边找卡，拖过来或者点一下。")}</p>}
         {groupMain(deck.main).map(([kind, entries]) => (
           <div key={kind} className="wall-group">
@@ -69,7 +70,7 @@ export function EditPage({ data, deck, onChange, images }: { data: CardData; dec
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("卡名，中、英、日都行")} />
         <input value={text} onChange={(event) => setText(event.target.value)} placeholder={t("卡文里的词")} />
         <p className="muted">{results.length > 0 ? `${results.length}${t(" 张（最多显示 60）")}` : t("只显示 MD 已实装的卡。拖到左边加入卡组。")}</p>
-        <div className="wall-cards">{results.map((card) => <CardChip key={card.id} card={card} banlist={data.banlist} images={images} draggable onClick={() => change(card, 1)} />)}</div>
+        <div className="wall-cards">{results.map((card) => <CardChip key={card.id} card={card} count={inDeck(card)} banlist={data.banlist} images={images} draggable onAdd={() => change(card, 1)} onRemove={inDeck(card) ? () => change(card, -1) : undefined} />)}</div>
       </section>
     </div>
   );

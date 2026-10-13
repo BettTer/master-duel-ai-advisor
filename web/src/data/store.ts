@@ -6,6 +6,7 @@ export interface SavedDeck {
   name: string;
   text: string; // YDKE, .ydk contents or a card list, as imported
   tiers: string;
+  draft?: string; // the endpoint draft the tiers were filled from; while tiers still equal it, a newer draft replaces them
   hand: number[]; // passcodes of the last hand planned
   createdAt: string;
   updatedAt: string;

@@ -36,6 +36,7 @@
     "test": "node --test \"test/**/*.test.ts\"",
     "prepublishOnly": "npm test && npm run typecheck && npm run build",
     "web": "vite --config web/vite.config.ts",
+    "dev:web": "vite --config web/vite.config.ts",
     "build:web": "vite build --config web/vite.config.ts",
     "typecheck:web": "tsc -p web/tsconfig.json",
     "export:web-data": "node scripts/export-web-data.ts"

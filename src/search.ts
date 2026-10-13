@@ -170,6 +170,8 @@ export interface Board {
 export interface OpponentPlay { code: number; at: number; target: number }
 /** The cost of each card the opponent draws from Maxx "C", in the same units as the levels: about a hand trap. */
 export const DRAW_PENALTY = 4;
+/** Each face-up monster we end with, on top of its endpoint value: more bodies is always better, but no body outweighs a removal. */
+export const BODY_VALUE = 0.25;
 export const HAND_TRAPS = { 灰流丽: 14558127, 无限泡影: 10045474, 增殖的G: 23434538 };
 
 /** More value first; on a tie, the shorter route. */
@@ -605,7 +607,7 @@ function createSearcher(
     consider(onBoard, "场上", ["field", "any", "fieldOrHand"]);
     consider(grave, "墓地", ["grave", "any"]);
     consider(notDrawn, "手里", ["hand", "fieldOrHand"]);
-    const value = counted.reduce((sum, item) => sum + item.value, 0) - line.draws * DRAW_PENALTY;
+    const value = counted.reduce((sum, item) => sum + item.value, 0) + field.length * BODY_VALUE - line.draws * DRAW_PENALTY;
     return { value, field, sets, counted, steps, path: [...line.path], draws: line.draws };
   };
 
@@ -972,7 +974,8 @@ export function createPlanner(
           const ids = new Map<number, { code: number; chance: Opportunity; target: number }>();
           let tasks: Task[] = [];
           for (const { code, found } of chances) {
-            for (const chance of found) {
+            // Maxx "C" is used as soon as our turn starts, not at the worst moment.
+            for (const chance of code === HAND_TRAPS.增殖的G ? found.slice(0, 1) : found) {
               const id = ids.size;
               ids.set(id, { code, chance, target: 0 });
               tasks.push({ id, path: best.path.slice(0, chance.prefix), play: { code, at: chance.at, target: 0 }, limit: INTERRUPTION_NODES });
