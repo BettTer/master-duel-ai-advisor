@@ -1318,7 +1318,36 @@ function formatBanlist(cards, banlist, options) {
   return lines.join("\n");
 }
 var SECTION_LABEL = { main: "\u4E3B\u5361\u7EC4", extra: "\u989D\u5916\u5361\u7EC4", side: "\u526F\u5361\u7EC4" };
-function formatDeck(deck, issues, banlist) {
+function cardList(cards, max2 = 6) {
+  const names2 = cards.slice(0, max2).map((card) => `\u300C${card.cn || card.en}\u300D`).join("\u3001");
+  return cards.length > max2 ? `${names2} \u7B49 ${cards.length} \u5F20` : names2;
+}
+var lockName = (lock) => `\u300C${lock.card.cn || lock.card.en}\u300D${lock.effect}`;
+function formatLocks(locks, pairs) {
+  if (locks.length === 0) return [];
+  const lines = ["", "\u989D\u5916\u5361\u7EC4\u7684\u9501\uFF1A"];
+  for (const { lock, blocked } of locks) {
+    let effect = "\u989D\u5916\u91CC\u7684\u602A\u517D\u90FD\u4E0D\u53D7\u5F71\u54CD";
+    if (lock.allowed === null) effect = "\u8FD9\u6761\u9650\u5236\u6CA1\u6CD5\u81EA\u52A8\u5224\u65AD\uFF0C\u8BF7\u770B\u539F\u6587";
+    else if (lock.allowed === "none") effect = "\u8FD9\u56DE\u5408\u5B8C\u5168\u4E0D\u80FD\u4ECE\u989D\u5916\u51FA\u602A\u517D";
+    else if (blocked.length > 0) effect = `\u989D\u5916\u91CC\u51FA\u4E0D\u6765\uFF1A${cardList(blocked)}`;
+    const notes = [
+      lock.timing === "whole-turn" ? "\u6574\u56DE\u5408\u6709\u6548\uFF0C\u8FD9\u56DE\u5408\u4E4B\u524D\u5DF2\u7ECF\u51FA\u8FC7\u4E0D\u7B26\u5408\u7684\u602A\u517D\u5C31\u53D1\u52A8\u4E0D\u4E86" : "",
+      lock.timing === "while-present" ? "\u8FD9\u5F20\u5361\u5728\u573A\u4E0A\u671F\u95F4\u4E00\u76F4\u6709\u6548" : "",
+      lock.bothPlayers ? "\u53CC\u65B9\u90FD\u53D7\u9650" : ""
+    ].filter(Boolean);
+    lines.push(`  - ${lockName(lock)}\uFF1A${lock.text} \u2192 ${effect}${notes.length > 0 ? `\uFF08${notes.join("\uFF1B")}\uFF09` : ""}`);
+  }
+  if (pairs.length > 0) {
+    lines.push("", "\u540C\u4E00\u56DE\u5408\u4E00\u8D77\u7528\uFF1A");
+    const sorted = [...pairs].sort((a, b) => a.remaining.length - b.remaining.length);
+    for (const { first, second, remaining } of sorted) {
+      lines.push(`  - ${lockName(first)} + ${lockName(second)}\uFF1A${remaining.length === 0 ? "\u989D\u5916\u5361\u7EC4\u4E00\u53EA\u90FD\u51FA\u4E0D\u6765" : `\u989D\u5916\u53EA\u5269${cardList(remaining)}`}`);
+    }
+  }
+  return lines;
+}
+function formatDeck(deck, issues, banlist, locks) {
   const size = (section) => deck[section].reduce((sum, entry) => sum + entry.count, 0);
   const byRarity = /* @__PURE__ */ new Map();
   for (const section of SECTIONS) {
@@ -1340,12 +1369,100 @@ function formatDeck(deck, issues, banlist) {
       lines.push(`  ${count} ${namesLine(card)} | ${card.mdRarity || "-"} | ${banText(card, banlist)}`);
     }
   }
+  lines.push(...formatLocks(locks.locks, locks.pairs));
   lines.push("", "\u68C0\u67E5\uFF1A", ...issues.length > 0 ? issues.map((issue) => `  - ${issue}`) : ["  \u6CA1\u6709\u53D1\u73B0\u5F20\u6570\u3001\u7981\u9650\u6216\u5B9E\u88C5\u65B9\u9762\u7684\u95EE\u9898\u3002"]);
   lines.push(`\uFF08${banlistNote(banlist)}\uFF09`);
   return lines.join("\n");
 }
 
+// src/locks.ts
+function parseAllowed(subject) {
+  let rest = subject;
+  const take = (pattern) => {
+    const matches = [...rest.matchAll(pattern)];
+    rest = rest.replace(pattern, " ");
+    return matches;
+  };
+  const allowed = { kinds: [], archetypes: [], races: [], attributes: [] };
+  allowed.archetypes = take(/「([^」]+)」/g).map((match) => match[1]);
+  const level = take(/(\d+)(星|阶)(以上|以下)?的?/g)[0];
+  if (level) {
+    const value = Number(level[1]);
+    allowed.level = level[3] === "\u4EE5\u4E0A" ? [value, 99] : level[3] === "\u4EE5\u4E0B" ? [0, value] : [value, value];
+  }
+  const atk = take(/(?:原本)?攻击力(?:是)?(\d+)以下的?/g)[0];
+  if (atk) allowed.maxAtk = Number(atk[1]);
+  for (const match of take(/((?:[光暗地水炎风神]·)*[光暗地水炎风神])属性的?/g)) allowed.attributes.push(...match[1].split("\xB7"));
+  for (const match of take(/([^\s·的「」]+?族(?:·[^\s·的「」]+?族)*)/g)) {
+    allowed.races.push(...match[1].split("\xB7").map((race) => race.replace(/族$/, "")));
+  }
+  for (const match of take(/((?:融合|同调|超量|连接|灵摆)(?:·(?:融合|同调|超量|连接|灵摆))*)/g)) {
+    allowed.kinds.push(...match[1].split("\xB7"));
+  }
+  return rest.replace(/怪兽|以及|的|·|\s/g, "") === "" ? allowed : null;
+}
+function belongsTo(card, archetype) {
+  return [card.cn, card.md, card.sc, card.jp].some((name) => name.includes(archetype)) || card.descZh.includes(`\u4E5F\u5F53\u4F5C\u300C${archetype}\u300D`);
+}
+function allows(allowed, card) {
+  const { kinds, race, attr } = zhKinds(card);
+  if (allowed.kinds.length > 0 && !allowed.kinds.some((kind) => kinds.has(kind))) return false;
+  if (allowed.archetypes.length > 0 && !allowed.archetypes.some((archetype) => belongsTo(card, archetype))) return false;
+  if (allowed.races.length > 0 && !allowed.races.includes(race)) return false;
+  if (allowed.attributes.length > 0 && !allowed.attributes.includes(attr)) return false;
+  if (allowed.level && (card.level === null || card.level < allowed.level[0] || card.level > allowed.level[1])) return false;
+  if (allowed.maxAtk !== void 0 && (card.atk === null || card.atk > allowed.maxAtk)) return false;
+  return true;
+}
+function timingOf(context) {
+  if (/发动的回合|特殊召唤过的回合/.test(context)) return "whole-turn";
+  if (/直到下次的自己回合/.test(context)) return "until-next-turn";
+  if (/回合|发动后/.test(context)) return "rest-of-turn";
+  return "while-present";
+}
+var LOCK = /(双方|自己)(?:不是([^，。；]*?)不能从额外卡组特殊召唤|若非([^，。；]*?)则不能从额外卡组(?:把怪兽)?特殊召唤|不用([^，。；]*?)不能从额外卡组把怪兽特殊召唤|不能从额外卡组把怪兽特殊召唤)/g;
+function parseLocks(card) {
+  const locks = [];
+  const parts = card.descZh.split(/(?=[①②③④⑤⑥⑦⑧⑨])/);
+  for (const part of parts) {
+    const effect = /^[①②③④⑤⑥⑦⑧⑨]/.test(part) ? part[0] : "";
+    for (const sentence of part.split(/(?<=。)/)) {
+      for (const match of sentence.matchAll(LOCK)) {
+        locks.push({
+          card,
+          effect,
+          text: sentence.trim().replace(/^[①②③④⑤⑥⑦⑧⑨]：/, ""),
+          timing: timingOf(sentence.slice(0, match.index)),
+          bothPlayers: match[1] === "\u53CC\u65B9",
+          allowed: match[4] !== void 0 ? null : (match[2] ?? match[3]) === void 0 ? "none" : parseAllowed(match[2] ?? match[3])
+        });
+      }
+    }
+  }
+  return locks;
+}
+function analyzeLocks(deckCards, extraDeck) {
+  const locks = deckCards.flatMap(parseLocks);
+  const allowedBy = (lock) => lock.allowed === null ? null : lock.allowed === "none" ? [] : extraDeck.filter((card) => allows(lock.allowed, card));
+  const reports = locks.map((lock) => {
+    const allowed = allowedBy(lock);
+    return { lock, blocked: allowed === null ? [] : extraDeck.filter((card) => !allowed.includes(card)) };
+  });
+  const pairs = [];
+  for (let i2 = 0; i2 < locks.length; i2++) {
+    for (let j = i2 + 1; j < locks.length; j++) {
+      const [first, second] = [locks[i2], locks[j]];
+      const [a, b] = [allowedBy(first), allowedBy(second)];
+      if (first.card.id === second.card.id || !a || !b || a.length === 0 || b.length === 0) continue;
+      const remaining = a.filter((card) => b.includes(card));
+      if (remaining.length < Math.min(a.length, b.length)) pairs.push({ first, second, remaining });
+    }
+  }
+  return { locks: reports, pairs };
+}
+
 // src/service.ts
+var distinctCards = (deck, sections) => [...new Map(sections.flatMap((section) => deck[section]).map(({ card }) => [card.id, card])).values()];
 async function lookup(queries) {
   const banlist = await loadBanlist();
   let result = formatLookup(await loadCards(), banlist, queries);
@@ -1369,7 +1486,8 @@ async function importDeck(input) {
       deck = await readDeck(input, cards);
     }
   }
-  return formatDeck(deck, checkDeck(deck, cards, banlist), banlist);
+  const locks = analyzeLocks(distinctCards(deck, ["main", "extra"]), distinctCards(deck, ["extra"]));
+  return formatDeck(deck, checkDeck(deck, cards, banlist), banlist, locks);
 }
 async function banlistText(options) {
   const banlist = await loadBanlist();

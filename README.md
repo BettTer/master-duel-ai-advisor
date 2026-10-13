@@ -52,7 +52,7 @@ Combo generation is not part of the initial scope. An assistant cannot reliably 
 1. **Card lookup with Master Duel data.** *Available now.* Exact card text in Chinese, English and Japanese; the Chinese name shown in Master Duel; Master Duel rarity and banlist status, including announced changes that are not in effect yet; and filtered searches across the full card pool.
 2. **Deck import.** *Available now.* Load a deck from a deck page on the official card database, a YDKE string, a `.ydk` file or a plain card list, and check its size, copies, banlist status and cards that are not in Master Duel, so that the later tools work on the player's actual list instead of one typed out by hand.
 3. **Consistency calculator.** Define which opening hands can start the deck—for example, “White Dragon works by itself; Cartesia needs any LIGHT or DARK monster”—and calculate exact brick rates going first and going second. The calculator will also show how those rates change when a card is added or removed.
-4. **Restriction and reference checks.** Detect incompatible “this turn you can only...” restrictions and effects that refer to cards the deck does not contain, such as a search effect with no remaining target or a reveal cost with no valid card in the Extra Deck.
+4. **Restriction and reference checks.** *Restriction checks are available now, as part of deck import.* Detect incompatible “this turn you can only...” restrictions and effects that refer to cards the deck does not contain, such as a search effect with no remaining target or a reveal cost with no valid card in the Extra Deck.
 5. **Deck review and build suggestions.** Combine the previous tools into one report covering conflicts, brick rate, weak slots and possible replacements, including the trade-offs and crafting cost of each change.
 6. **Theme-based deck building.** Start with a theme such as Ice Barrier, find engines that are commonly played with it, and use those results as the starting point for a list.
 7. **Opening-hand route planner.** This is the long-term goal. A simulator deals an opening hand, and the player can adjust it in a small hand editor. The tool then works out the strongest end board that hand can reach, along with the fallback board if the opponent interrupts at a given point, for example with Ash Blossom & Joyous Spring, a negation effect or Maxx "C". The result is shown as a route map. The interface should be as clear, practical and good-looking as we can make it.
@@ -215,7 +215,7 @@ MD 有独立的禁限表。按照 TCG 或 OCG 禁限表给出的建议，可能�
 1. **带 MD 数据的查卡功能。** *已可使用。* 提供中、英、日三语的准确卡文、MD 中显示的中文卡名、MD 稀有度和禁限状态（包括已公布但尚未生效的变动），并支持按条件筛选完整卡池。
 2. **卡组导入。** *已可使用。* 支持通过官方卡片数据库的卡组页面、YDKE 字符串、`.ydk` 文件或纯文本卡表导入卡组，并检查张数、同名卡、禁限和 MD 未实装的卡，让后面的工具直接分析玩家实际使用的卡表，而不用手动逐张输入。
 3. **稳定性计算器。** 先定义哪些起手可以展开，例如“白龙单卡能动；卡尔特西娅需要配一只光属性或暗属性怪兽”，再精确计算先手、后手的卡手率，以及增加或减少一张卡后概率如何变化。
-4. **限制与引用检查。** 查找互相冲突的“这个回合只能……”限制，以及效果中提到但卡组里并不存在的卡，例如已经没有合法目标的检索效果，或额外卡组里没有合法卡片的展示费用。
+4. **限制与引用检查。** *限制检查已可使用，包含在卡组导入里。* 查找互相冲突的“这个回合只能……”限制，以及效果中提到但卡组里并不存在的卡，例如已经没有合法目标的检索效果，或额外卡组里没有合法卡片的展示费用。
 5. **卡组体检和构筑建议。** 把前面的工具合成一份报告，列出卡片冲突、卡手率、较弱的位置和可选的替换方案，并说明每种调整的代价和合成成本。
 6. **按主题构筑。** 选择一个主题，例如冰结界，查找常与它搭配的轴，并以此为起点继续调整卡组。
 7. **起手展开路线规划。** 这是项目的长期目标。由模拟器发出一手起手，玩家也可以在一个小型起手编辑器里自行调整。工具随后算出这手牌能达到的最强终场，以及对手在某一步介入时的妥协场，例如对手发动「灰流丽」、无效类效果（康），或「增殖的G」。结果会以路线图的形式展示，界面会尽量做到清晰、实用、美观。

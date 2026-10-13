@@ -1,9 +1,13 @@
 // The operations both entry points offer: load the data, run the query, return text.
 import { jstDate, loadBanlist, type Status } from "./banlist.ts";
 import { cardDataInfo, loadCards, reloadIfSourcesChanged } from "./cards.ts";
-import { checkDeck, readDeck } from "./deck.ts";
+import { checkDeck, readDeck, type Deck } from "./deck.ts";
 import { banlistNote, formatBanlist, formatDeck, formatLookup, formatSearch } from "./format.ts";
+import { analyzeLocks } from "./locks.ts";
 import { inMasterDuel, searchCards, type SearchFilters } from "./query.ts";
+
+const distinctCards = (deck: Deck, sections: ("main" | "extra")[]) =>
+  [...new Map(sections.flatMap((section) => deck[section]).map(({ card }) => [card.id, card])).values()];
 
 /** Full details for each query. If one matched nothing, check right away whether a source has newer data. */
 export async function lookup(queries: string[]): Promise<{ text: string; missing: boolean }> {
@@ -32,7 +36,8 @@ export async function importDeck(input: string): Promise<string> {
       deck = await readDeck(input, cards);
     }
   }
-  return formatDeck(deck, checkDeck(deck, cards, banlist), banlist);
+  const locks = analyzeLocks(distinctCards(deck, ["main", "extra"]), distinctCards(deck, ["extra"]));
+  return formatDeck(deck, checkDeck(deck, cards, banlist), banlist, locks);
 }
 
 /** The banlist as text, or null if it could never be downloaded. */

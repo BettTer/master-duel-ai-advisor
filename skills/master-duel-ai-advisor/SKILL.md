@@ -44,7 +44,7 @@ Extra Deck monsters in search results show their material line, but not their ef
 
 Material and condition wording is more uniform in the Chinese text (for example 调整＋调整以外的怪兽1只以上), so prefer Chinese phrases for pattern searches. A phrase filter can still drop cards worded differently, so when completeness matters, run the search once without `--text` and skim what the phrase excluded.
 
-`deck` reads a whole deck and checks it: every card with rarity and banlist status, the deck's rarity totals, and problems with deck size, copies (cards that 规则上当作 another card count together), the Master Duel banlist and cards not in Master Duel. It accepts:
+`deck` reads a whole deck and checks it: every card with rarity and banlist status, the deck's rarity totals, its Extra Deck locks (额外卡组的锁: each "this turn you can only Special Summon X from the Extra Deck" restriction in the deck, which of the deck's Extra Deck monsters it rules out, and which pairs of locks leave few or no Extra Deck monsters when used in the same turn), and problems with deck size, copies (cards that 规则上当作 another card count together), the Master Duel banlist and cards not in Master Duel. It accepts:
 
 - the URL of a deck page on the official card database (db.yugioh-card.com). Master Duel decks get there through the game's link with the card database. The deck has to be public; a private deck can't be read without logging in, and the script says so. Decks are private by default. To make one public, the user opens it for editing, taps the tag icon next to the deck name, chooses a deck type, turns the public setting on and saves;
 - a YDKE string or a `.ydk` file;
@@ -81,7 +81,7 @@ Some lessons apply to every player: card data that is wrong, a rule in this skil
 
 **Get names right.** Give the Chinese name in 「」 together with the English name. When the MD name differs (shown as MD：…), mention it, because that is what the player sees in game. A card that 规则上当作「X」 counts as X for the copy limit: Fallen of the White Dragon shares Fallen of Albaz's three copies.
 
-**Check turn restrictions against each other.** Lines like 这个回合，自己不是X不能从额外卡组特殊召唤 or 这张卡发动的回合… decide whether two cards can be used in the same turn. When a plan relies on more than one such card, compare them and say whether they conflict. Junk Meister's first effect locks you into Synchro Monsters and Branded Fusion locks you into Fusion Monsters, so those two lines cannot share a turn.
+**Check turn restrictions against each other.** Lines like 这个回合，自己不是X不能从额外卡组特殊召唤 or 这张卡发动的回合… decide whether two cards can be used in the same turn. The `deck` report lists these locks and the pairs that conflict; use it, and for cards outside a deck list compare the lock sentences yourself. A lock marked 整回合有效 also stops the card from being activated after an Extra Deck summon it doesn't allow. Junk Meister's first effect locks you into Synchro Monsters and Branded Fusion locks you into Fusion Monsters, so those two lines cannot share a turn.
 
 **Card text is not a ruling.** If the question depends on timing or a ruling the text does not settle, say so and point to the card's ygocdb page (it lists the official Q&A) instead of guessing.
 

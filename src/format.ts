@@ -2,6 +2,7 @@
 import { banStatus, cardKeys, entryKeys, jstDate, type BanStatus, type Banlist, type Status } from "./banlist.ts";
 import type { Card } from "./cards.ts";
 import { SECTIONS, type Deck, type Section } from "./deck.ts";
+import type { Lock, LockPair, LockReport } from "./locks.ts";
 import { findCards, inMasterDuel, zhKinds } from "./query.ts";
 
 const BAN_LABEL: Record<BanStatus, string> = {
@@ -125,7 +126,39 @@ export function formatBanlist(cards: Card[], banlist: Banlist, options: { status
 
 const SECTION_LABEL: Record<Section, string> = { main: "主卡组", extra: "额外卡组", side: "副卡组" };
 
-export function formatDeck(deck: Deck, issues: string[], banlist: Banlist | null): string {
+function cardList(cards: Card[], max = 6): string {
+  const names = cards.slice(0, max).map((card) => `「${card.cn || card.en}」`).join("、");
+  return cards.length > max ? `${names} 等 ${cards.length} 张` : names;
+}
+
+const lockName = (lock: Lock) => `「${lock.card.cn || lock.card.en}」${lock.effect}`;
+
+function formatLocks(locks: LockReport[], pairs: LockPair[]): string[] {
+  if (locks.length === 0) return [];
+  const lines = ["", "额外卡组的锁："];
+  for (const { lock, blocked } of locks) {
+    let effect = "额外里的怪兽都不受影响";
+    if (lock.allowed === null) effect = "这条限制没法自动判断，请看原文";
+    else if (lock.allowed === "none") effect = "这回合完全不能从额外出怪兽";
+    else if (blocked.length > 0) effect = `额外里出不来：${cardList(blocked)}`;
+    const notes = [
+      lock.timing === "whole-turn" ? "整回合有效，这回合之前已经出过不符合的怪兽就发动不了" : "",
+      lock.timing === "while-present" ? "这张卡在场上期间一直有效" : "",
+      lock.bothPlayers ? "双方都受限" : "",
+    ].filter(Boolean);
+    lines.push(`  - ${lockName(lock)}：${lock.text} → ${effect}${notes.length > 0 ? `（${notes.join("；")}）` : ""}`);
+  }
+  if (pairs.length > 0) {
+    lines.push("", "同一回合一起用：");
+    const sorted = [...pairs].sort((a, b) => a.remaining.length - b.remaining.length);
+    for (const { first, second, remaining } of sorted) {
+      lines.push(`  - ${lockName(first)} + ${lockName(second)}：${remaining.length === 0 ? "额外卡组一只都出不来" : `额外只剩${cardList(remaining)}`}`);
+    }
+  }
+  return lines;
+}
+
+export function formatDeck(deck: Deck, issues: string[], banlist: Banlist | null, locks: { locks: LockReport[]; pairs: LockPair[] }): string {
   const size = (section: Section) => deck[section].reduce((sum, entry) => sum + entry.count, 0);
   const byRarity = new Map<string, number>();
   for (const section of SECTIONS) {
@@ -148,6 +181,7 @@ export function formatDeck(deck: Deck, issues: string[], banlist: Banlist | null
       lines.push(`  ${count} ${namesLine(card)} | ${card.mdRarity || "-"} | ${banText(card, banlist)}`);
     }
   }
+  lines.push(...formatLocks(locks.locks, locks.pairs));
   lines.push("", "检查：", ...(issues.length > 0 ? issues.map((issue) => `  - ${issue}`) : ["  没有发现张数、禁限或实装方面的问题。"]));
   lines.push(`（${banlistNote(banlist)}）`);
   return lines.join("\n");
