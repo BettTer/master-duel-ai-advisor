@@ -8,6 +8,6 @@
   },
   "homepage": "https://github.com/BettTer/master-duel-ai-advisor",
   "repository": "https://github.com/BettTer/master-duel-ai-advisor",
-  "license": "Apache-2.0",
+  "license": "AGPL-3.0-or-later",
   "keywords": ["yugioh", "yu-gi-oh", "master-duel", "deck-builder"]
 }

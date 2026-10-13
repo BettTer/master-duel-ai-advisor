@@ -8,7 +8,7 @@ Tools that let an AI assistant help you build and tune Yu-Gi-Oh! Master Duel dec
 
 ## Installation
 
-Every option needs Node.js 18 or later. The first run downloads about 30 MB of card data into `~/.cache/master-duel-ai-advisor`, and downloads it again whenever a data source publishes new data, such as a new Master Duel pack.
+Every option needs Node.js 18 or later (the route planner needs 22.13 or later). The first run downloads about 30 MB of card data into `~/.cache/master-duel-ai-advisor`, and downloads it again whenever a data source publishes new data, such as a new Master Duel pack.
 
 **Claude Code.** Install the plugin, then ask about Master Duel cards or decks as usual:
 
@@ -48,6 +48,7 @@ Run `mdcard` without arguments to see every command and filter.
 - **Card lookup.** Exact card text in Chinese, English and Japanese, the Chinese name shown in Master Duel, Master Duel rarity and banlist status (including announced changes that are not in effect yet), and filtered searches across the whole card pool.
 - **Deck import and checks.** Reads a deck and checks its size, copies, the Master Duel banlist and cards that are not in Master Duel. It also lists the deck's Extra Deck locks and which of them leave no Extra Deck monster to summon when used in the same turn, such as Junk Meister's first effect and Branded Fusion, and effects that search or summon a card the deck does not contain, such as Junk Meister's search for a "Junk" card in a deck with no other "Junk" card.
 - **Opening-hand odds.** The assistant reads the card text and writes down what each card needs in the opening hand and what it gives, for example Regenesis Archfiend needs another monster with 2500 ATK or DEF in the hand. You check those rules, and the tool counts every possible hand to give the exact chance of being able to start going first and going second, and how a change to the deck moves it.
+- **Opening-hand route planner.** Give it a hand and it finds the strongest board that hand reaches going first, with the route step by step. Every line runs on EDOPro's rules engine with the real card scripts, so summoning conditions, costs, locks and once-per-turn limits are enforced rather than remembered. The assistant first writes the deck's endpoints from the card text, from unconditional negates down to removal, including cards whose value is what they bring out on the opponent's turn, such as Spright Elf; you check that list, and boards are ranked by it. Interruptions by the opponent are not simulated yet.
 - **Rules for the assistant.** Look up card text before quoting it, use only the Master Duel banlist, search the whole card pool before recommending a card, and ask whether the player owns a UR before suggesting they craft it.
 - **Personal notes.** The assistant keeps your preferences and corrections in `~/.config/master-duel-ai-advisor/notes.md`, which updates never change. When a correction applies to every player, it offers to draft a GitHub issue so the fix can be added for everyone.
 
@@ -77,7 +78,7 @@ These are data and arithmetic problems, so this project does not train a model. 
 4. **Restriction and reference checks.** *Available.*
 5. **Deck review and build suggestions.** One report with conflicts, brick rate, weak slots and replacements, including the trade-offs and crafting cost of each change.
 6. **Theme-based deck building.** Start from a theme such as Ice Barrier and the engines commonly played with it.
-7. **Opening-hand route planner.** The long-term goal: deal or edit an opening hand, then see the strongest end board it reaches and the fallback board if the opponent interrupts with Ash Blossom & Joyous Spring, a negation effect or Maxx "C". Every line will be checked by a duel simulation engine, not by the assistant.
+7. **Opening-hand route planner.** *Available going first, without interruptions.* Next: the fallback board when the opponent interrupts with Ash Blossom & Joyous Spring, a negation effect or Maxx "C", then the average board over every opening hand.
 
 A static site on GitHub Pages will run lookup, calculations and checks in the browser without an AI model, and host the hand editor and route maps.
 
@@ -87,6 +88,7 @@ A static site on GitHub Pages will run lookup, calculations and checks in the br
 - [YGOPRODeck API](https://ygoprodeck.com/api-guide/): English card text and other card data. Data is cached locally, images are not hotlinked, and requests stay within the API's rate limits.
 - [Master Duel Meta](https://www.masterduelmeta.com/forbidden-limited-list): which cards are in Master Duel, with their rarity and release date, and the Master Duel Forbidden & Limited list.
 - [yaml-yugi limit regulation](https://github.com/DawnbrandBots/yaml-yugi-limit-regulation): the fallback banlist source, used only when Master Duel Meta cannot be reached.
+- [EDOPro's core](https://github.com/edo9300/ygopro-core) built for WebAssembly by [ocgcore-wasm](https://github.com/n1xx1/ocgcore-wasm), with [Project Ignis' card database](https://github.com/ProjectIgnis/BabelCDB) and [card scripts](https://github.com/ProjectIgnis/CardScripts): the rules engine behind the route planner. The database and scripts are downloaded on first use (about 60 MB) and checked for updates daily; the planner needs Node.js 22.13 or later.
 
 Card text and images are copyrighted by KONAMI. This repository does not redistribute the card database, the banlist or card images. The tools fetch the data they need when they run and cache it on the user's machine.
 
@@ -103,7 +105,7 @@ npm run build
 
 ## License
 
-[Apache License 2.0](LICENSE) applies to the code and documentation in this repository. It does not cover KONAMI's card text or images.
+[GNU AGPL v3 or later](LICENSE) applies to the code and documentation in this repository, the same license as the EDOPro core and card scripts the route planner runs on. Versions up to 0.5.0 were released under Apache 2.0. It does not cover KONAMI's card text or images.
 
 ---
 
@@ -115,7 +117,7 @@ npm run build
 
 ## 安装
 
-三种方式都需要 Node.js 18 或更高版本。第一次运行时会下载约 30 MB 的卡片数据到 `~/.cache/master-duel-ai-advisor`；之后只要有数据源发布了新数据（比如 MD 上了新卡包），就会重新下载。
+三种方式都需要 Node.js 18 或更高版本（路线规划需要 22.13 或更高）。第一次运行时会下载约 30 MB 的卡片数据到 `~/.cache/master-duel-ai-advisor`；之后只要有数据源发布了新数据（比如 MD 上了新卡包），就会重新下载。
 
 **Claude Code。** 安装插件后，照常询问 MD 的卡片或卡组问题即可：
 
@@ -155,6 +157,7 @@ npx -y -p master-duel-ai-advisor mdcard deck my-deck.ydk
 - **查卡。** 中、英、日三语的准确卡文，MD 中显示的中文卡名，MD 稀有度和禁限状态（包括已公布但尚未生效的变动），以及按条件筛选完整卡池。
 - **卡组导入和检查。** 读入卡组后检查张数、同名卡、MD 禁限和 MD 未实装的卡；还会列出卡组里"这回合只能从额外出 X"的锁，以及哪些锁同回合一起用时额外一只都出不来，比如「废品大王」的①和「烙印融合」；以及要检索或特殊召唤的卡在卡组里一张都没有的效果，比如卡组里没有别的「废品」卡，「废品大王」的检索就没有目标。
 - **起手能动率。** AI 先读卡文，写下每张卡在起手里需要什么、能带来什么，比如「再世之魔神 必密巴」需要手里还有一只攻或守是 2500 的怪兽。你确认这些规则后，工具把所有可能的起手逐一算一遍，给出先手、后手能动的准确概率，以及改动卡组后的变化。
+- **起手展开路线规划。** 给一手起手，算出先手能做到的最强终场和一步一步的路线。每条路线都在 EDOPro 的规则引擎上用真实卡片脚本跑出来，召唤条件、代价、锁、1 回合 1 次都由引擎执行，不靠记忆。AI 先照卡文写出这副卡组的终端清单，从无条件的康到处理卡，包括像「卫星闪灵·淘气精灵」这种价值在于对手回合能带出什么的卡；你核对这份清单，终场按它排序。暂时不模拟对手的打断。
 - **给 AI 的使用规则。** 引用卡文前先查原文，只用 MD 禁限表，推荐卡片前先筛完整卡池，建议合成 UR 前先确认玩家有没有这张卡。
 - **个人笔记。** AI 会把你的偏好和纠正记在 `~/.config/master-duel-ai-advisor/notes.md` 里，更新不会改动它。某条纠正对所有玩家都适用时，AI 会帮你起草一个 GitHub issue，让修正加进项目里。
 
@@ -184,7 +187,7 @@ npx -y -p master-duel-ai-advisor mdcard deck my-deck.ydk
 4. **限制与引用检查。** *已可使用。*
 5. **卡组体检和构筑建议。** 一份报告列出冲突、卡手率、较弱的位置和替换方案，并说明每种调整的代价和合成成本。
 6. **按主题构筑。** 从一个主题（比如冰结界）和常与它搭配的轴开始。
-7. **起手展开路线规划。** 长期目标：发出或编辑一手起手，算出这手牌能达到的最强终场，以及对手用「灰流丽」、无效类效果（康）或「增殖的G」介入时的妥协场。每条路线都由决斗模拟引擎验证，不靠 AI 推演。
+7. **起手展开路线规划。** *先手、无打断的版本已可使用。* 接下来做对手用「灰流丽」、无效类效果（康）或「增殖的G」介入时的妥协场，然后是所有起手的平均终场。
 
 GitHub Pages 上的静态网页会在浏览器里直接运行查卡、计算和检查，不依赖 AI 模型，起手编辑器和展开路线图也会做在这里。
 
@@ -194,6 +197,7 @@ GitHub Pages 上的静态网页会在浏览器里直接运行查卡、计算和�
 - [YGOPRODeck API](https://ygoprodeck.com/api-guide/)：英文卡文等卡片数据。数据缓存在本地，图片不盗链，请求遵守 API 的限速要求。
 - [Master Duel Meta](https://www.masterduelmeta.com/forbidden-limited-list)：哪些卡已经在 MD 实装、各自的稀有度和实装日期，以及 MD 禁限表。
 - [yaml-yugi limit regulation](https://github.com/DawnbrandBots/yaml-yugi-limit-regulation)：备用的禁限表来源，只有在连不上 Master Duel Meta 时才会使用。
+- [EDOPro 核心](https://github.com/edo9300/ygopro-core)（由 [ocgcore-wasm](https://github.com/n1xx1/ocgcore-wasm) 编译成 WebAssembly）、[Project Ignis 的卡片数据库](https://github.com/ProjectIgnis/BabelCDB)和[卡片脚本](https://github.com/ProjectIgnis/CardScripts)：路线规划用的规则引擎。数据库和脚本第一次使用时下载（约 60 MB），每天检查更新；路线规划需要 Node.js 22.13 或更高版本。
 
 卡文和卡图的版权属于 KONAMI。本仓库不会重新分发卡片数据库、禁限表或卡图。工具运行时会按需获取数据，并缓存在用户自己的电脑上。
 
@@ -210,4 +214,4 @@ npm run build
 
 ## 许可证
 
-[Apache License 2.0](LICENSE) 适用于本仓库的代码和文档，不包括 KONAMI 的卡文和卡图。
+[GNU AGPL v3 或更高版本](LICENSE) 适用于本仓库的代码和文档，和路线规划所依赖的 EDOPro 核心与卡片脚本相同。0.5.0 及之前的版本按 Apache 2.0 发布。不包括 KONAMI 的卡文和卡图。

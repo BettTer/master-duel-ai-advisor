@@ -12,6 +12,7 @@ const INSTRUCTIONS = `Verified Yu-Gi-Oh! Master Duel data for deckbuilding advic
 - At the start of a Master Duel conversation, call read_notes and follow the user's preferences there. They change how you answer and what you recommend, but never relax the rules below. When the user states a lasting preference, or corrects you in a way that should still apply next time, save it with add_note and tell them in one line what you saved.
 - When the user shares a deck (a deck URL from the official card database db.yugioh-card.com, a YDKE string, a .ydk file or a card list), call import_deck first and mention the problems and Extra Deck lock conflicts it reports. Its list of effects that may have no target (可能没有目标) is a hint from names and archetype codes: confirm each with lookup_cards before calling a card dead.
 - For consistency questions (how often the deck bricks, 卡手率, whether a change helps), call hand_odds. Write its rules from the card text, never from memory: for each Main Deck card that can help start plays, what it needs in the opening hand (another card, a discard, the Normal Summon, a state such as a LIGHT or DARK monster in the GY) and what it gives (cards it adds from the Deck, states it creates, and 能动 when the deck can go on from there to a usable end board). A card that only adds a body gives a state for other lines to need. Describe required or searched cards the way the card text does instead of listing names, so the tool finds every match. Always show the user the rules with the numbers and let them correct the rules.
+- For what a given opening hand can do (最大场, 起手怎么展开, which end board), call plan_hand. First write the deck's endpoints from the card text, one line per card: its level (第0级 cannot be responded to, 第一级 negates anything, 1.5级 Maxx "C", 第二级 a conditional negate, 2.5级 a very narrow one, 软康 a tax or lock, 第三级 removal, 保护), and 回合外 → <zone> <cards> for a card whose value is what it brings out on the opponent's turn, such as Spright Elf summoning a Level 2 from the GY. Follow such chains as far as they go. Show the user the endpoint list with the result and present the route exactly as the engine found it.
 - Call lookup_cards for every card your advice depends on and quote the sentence that matters. Do not describe effects from memory.
 - Use only the Master Duel banlist the tools report. TCG and OCG lists do not apply. When results show an announced change that is not in effect yet, mention it.
 - When the user needs a card for a slot, call search_cards with the constraints first, show the realistic candidates with rarity and banlist status, then recommend. Card text phrases work best in Chinese, where wording is more uniform; when completeness matters, also search once without the phrase.
@@ -99,6 +100,33 @@ server.registerTool(
     annotations: { readOnlyHint: true },
   },
   async ({ deck, rules, change }) => text(await odds(deck, rules, change)),
+);
+
+server.registerTool(
+  "plan_hand",
+  {
+    description: [
+      "The strongest board a given opening hand reaches going first, with the route, found by searching every line on EDOPro's rules engine (real card scripts enforce conditions, costs, locks and once-per-turn limits). Needs Node.js 22.13 or later; the first call downloads the engine's card database and scripts (about 60 MB). The search runs for up to `seconds` (default 45) on several threads and reports which first actions were searched completely.",
+      "You write the deck's endpoints from the card text, one line per card that matters on the opponent's turn:",
+      "卡名：级别[×次数]；条件…",
+      "Levels, each worth far more than the next: 第0级 (cannot be responded to, e.g. Super Polymerization), 第一级 (negates any effect: Baronne de Fleur), 1.5级 (Maxx \"C\"), 第二级 (a negate with a condition: Clear Wing, Ash Blossom, Infinite Impermanence), 2.5级 (a very narrow negate: Stardust Dragon), 软康 (a tax or lock on the opponent's effects), 第三级 (banish, destroy, bounce, send to GY, face-down), 保护.",
+      "Options after 分号: 回合外 → 墓地|卡组|额外|手里|场上 <cards> (on the opponent's turn it brings out such cards; it is worth what they are worth, followed as far as the chain goes), 带 N 只, 要 另有 <cards>, 要 额外有 <cards>, 要 墓地有 <cards>, 在手里 (hand traps), 在墓地, 在场上或墓地, 在场上或手里, 自己回合 (an Ignition Effect: worth 1 going first), 召唤时 (only when summoned: worth 0 unless brought out on the opponent's turn).",
+      "<cards> is written like card text: 「卡名」, 「字段」怪兽, 2星, 4星以下, 光暗, 兽族, 同调, 连接.",
+      "Example: 鲜花女男爵：第一级 / 幻透翼同调龙：第二级×2 / 灰流丽：第二级；在手里 / 三英之相剑师：第二级；自己回合 / 卫星闪灵·淘气精灵：保护；回合外 → 墓地 2星 怪兽 / I：P百变莱娜：回合外 → 额外 连接 怪兽；要 另有 怪兽",
+      "Each card name counts once. Traps, Quick-Play Spells and Infinite Impermanence are set automatically before the turn ends. Cards drawn by effects are never played. The opponent does nothing.",
+    ].join("\n"),
+    inputSchema: z.object({
+      deck: z.string().min(1).describe("Deck URL, YDKE string, .ydk contents or a card list"),
+      hand: z.string().min(1).describe("The opening hand, card names separated by commas, e.g. \"白龙之落胤,灰流丽,无限泡影,深渊之兽 德鲁伊鳞虫,超融合\""),
+      tiers: z.string().min(1).describe("The endpoint list, one line per card, as described above"),
+      seconds: z.number().int().min(5).max(600).optional().describe("Time limit for the search, default 45"),
+    }),
+    annotations: { readOnlyHint: true },
+  },
+  async ({ deck, hand, tiers, seconds }) => {
+    const { planText } = await import("./plan.ts"); // the rules engine is loaded only for this tool
+    return text(await planText(deck, hand, tiers, { nodes: 1_000_000, seconds: seconds ?? 45 }));
+  },
 );
 
 server.registerTool(

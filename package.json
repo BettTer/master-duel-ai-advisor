@@ -1,8 +1,8 @@
 {
   "name": "master-duel-ai-advisor",
-  "version": "0.5.0",
-  "description": "Yu-Gi-Oh! Master Duel deckbuilding tools for AI assistants: card lookup, deck import and checks, rarity and banlist, as an MCP server and a Claude skill",
-  "license": "Apache-2.0",
+  "version": "0.6.0",
+  "description": "Yu-Gi-Oh! Master Duel deckbuilding tools for AI assistants: card lookup, deck import and checks, opening-hand odds and a route planner on EDOPro's rules engine, as an MCP server and a Claude skill",
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "repository": {
     "type": "git",
