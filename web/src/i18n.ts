@@ -34,9 +34,9 @@ const EN: Record<string, string> = {
   // hand page
   "先在「卡组」页读入一副卡组。": "Import a deck first.", "随机发一手": "Random hand", "清空": "Clear",
   "点下面的卡加入起手，点起手里的卡拿掉。": "Click a card below to add it; click a card in the hand to remove it.",
-  "终端清单": "Endpoints", "按卡文生成草稿": "Draft from card text",
-  "草稿只认得最直白的写法（康、处理、常见手坑），级别和回合外的链条要自己核。让 AI 助手照 SKILL.md 做终端分析会准得多。":
-    "The draft only recognises plain wording (negates, removal, common hand traps); check the levels and add the off-turn chains yourself. An AI assistant following SKILL.md does this far better.",
+  "终端清单": "Endpoints", "重新按卡文生成草稿": "Redraft from card text",
+  "打开卡组时已经按卡文填了一版草稿：手坑、康、处理卡都认得，但级别和回合外的链条（淘气拉红精灵这种）要自己核。让 AI 助手照 SKILL.md 做终端分析会准得多。":
+    "A draft was filled in from the card text when the deck was opened: hand traps, negates and removal are recognised, but check the levels and add the off-turn chains (Spright Elf bringing back Spright Red) yourself. An AI assistant following SKILL.md does this far better.",
   "最多搜 ": "Search up to ", " 秒": " s", "搜索中…": "Searching…", "规划这手起手": "Plan this hand", "先选起手": "Pick a hand first",
   "先填终端清单，或者点上面的\"生成草稿\"": "Fill in the endpoints first, or click \"Draft\" above",
   "准备引擎…": "Starting the engine…", "出错：": "Error: ", "规则引擎还没有这些卡的数据：": "The engine has no data for: ",

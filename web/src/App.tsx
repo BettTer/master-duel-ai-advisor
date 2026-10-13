@@ -1,6 +1,7 @@
 // The app shell: the deck library, one deck's workspace (card list and checks, hand, route, profile) and the lookup.
 import { useEffect, useRef, useState } from "react";
 import { readDeck, type Deck } from "../../src/deck.ts";
+import { draftTiers } from "../../src/draft.ts";
 import type { Card } from "../../src/merge.ts";
 import { profileDeck, type Profile } from "../../src/profile.ts";
 import type { PlanResult, TraceStep } from "../../src/search.ts";
@@ -84,6 +85,12 @@ export function App() {
   async function openDeck(saved: SavedDeck, loaded: CardData, sub: Sub) {
     const deck = await readDeck(saved.text, loaded.cards);
     deck.name = saved.name;
+    // A deck without an endpoint list gets a draft from the card text first; the user corrects it from there.
+    if (!saved.tiers.trim()) {
+      saved = { ...saved, tiers: draftTiers(deck) };
+      await saveDeck(saved);
+      setDecks(await listDecks());
+    }
     const pile = deck.main.flatMap((entry) => Array<Card>(entry.count).fill(entry.card));
     const hand = saved.hand.map((id) => pile.find((card) => card.id === id || card.altIds.includes(id))).filter((card): card is Card => !!card);
     setOpen({ saved, deck, analysis: analyzeDeck(deck, loaded), hand, route: null, profile: null });

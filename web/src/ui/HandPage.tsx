@@ -54,8 +54,8 @@ export function HandPage({ data, deck, hand, setHand, tiers, setTiers, seconds, 
         <p className="muted">{t("终端＝对手回合能用的打断。级别：第0级（对面康不了，超融合）、第一级（三色康）、1.5级（增殖的G）、第二级（有条件的康）、2.5级（条件很窄）、软康（税和锁）、第三级（除外、破坏、送墓、回手）、保护。附加写法：×2、在手里、在墓地、自己回合、召唤时、回合外出、回合外 → 墓地/卡组/额外 〈卡〉[到手]、带 N 只、要 另有/额外有/墓地有 〈卡〉。")}</p>
         <textarea rows={10} value={tiers} onChange={(event) => setTiers(event.target.value)} placeholder={TIERS_HINT} />
         <div className="row">
-          <button className="ghost" onClick={() => setTiers(draftTiers(deck))}>{t("按卡文生成草稿")}</button>
-          <span className="muted">{t("草稿只认得最直白的写法（康、处理、常见手坑），级别和回合外的链条要自己核。让 AI 助手照 SKILL.md 做终端分析会准得多。")}</span>
+          <button className="ghost" onClick={() => setTiers(draftTiers(deck))}>{t("重新按卡文生成草稿")}</button>
+          <span className="muted">{t("打开卡组时已经按卡文填了一版草稿：手坑、康、处理卡都认得，但级别和回合外的链条（淘气拉红精灵这种）要自己核。让 AI 助手照 SKILL.md 做终端分析会准得多。")}</span>
         </div>
         <div className="row">
           <label>{t("最多搜 ")}<input type="number" min={5} max={300} value={seconds} onChange={(event) => setSeconds(Number(event.target.value))} />{t(" 秒")}</label>
