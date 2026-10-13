@@ -3,8 +3,8 @@ import type { SavedDeck } from "../data/store.ts";
 import { t } from "../i18n.ts";
 
 /** The deck library: every deck the user imported, and the box to import another. */
-export function LibraryPage({ decks, onImport, onOpen, onRename, onDelete }: {
-  decks: SavedDeck[]; onImport: (text: string, name: string) => Promise<void>; onOpen: (id: string) => void;
+export function LibraryPage({ decks, onImport, onCreate, onOpen, onRename, onDelete }: {
+  decks: SavedDeck[]; onImport: (text: string, name: string) => Promise<void>; onCreate: (name: string) => Promise<void>; onOpen: (id: string) => void;
   onRename: (id: string, name: string) => void; onDelete: (id: string) => void;
 }) {
   const [text, setText] = useState("");
@@ -27,7 +27,7 @@ export function LibraryPage({ decks, onImport, onOpen, onRename, onDelete }: {
   return (
     <div className="page">
       <section className="panel">
-        <h2>{t("我的卡组")}</h2>
+        <h2>{t("我的卡组")} <button className="ghost small" onClick={() => onCreate(`${t("新卡组")} ${decks.length + 1}`)}>{t("新建空卡组")}</button></h2>
         {decks.length === 0 ? <p className="muted">{t("还没有卡组。下面导入一副，它会一直留在这个浏览器里。")}</p> : (
           <ul className="decks">{decks.map((deck) => (
             <li key={deck.id}>

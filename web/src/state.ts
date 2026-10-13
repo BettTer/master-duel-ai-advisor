@@ -4,15 +4,15 @@ import type { Card } from "../../src/merge.ts";
 import { LEVELS } from "../../src/search.ts";
 import { getLang, t } from "./i18n.ts";
 
-export type Sub = "overview" | "hand" | "route" | "profile";
+export type Sub = "overview" | "edit" | "hand" | "route" | "profile";
 export const SUBS: { id: Sub; label: string }[] = [
-  { id: "overview", label: "卡表与检查" }, { id: "hand", label: "起手" }, { id: "route", label: "路线图" }, { id: "profile", label: "全景" },
+  { id: "overview", label: "卡表与检查" }, { id: "edit", label: "编辑" }, { id: "hand", label: "起手" }, { id: "route", label: "路线图" }, { id: "profile", label: "全景" },
 ];
 /** Where the app is: the library, the lookup, or one deck's workspace. */
 export type Route = { page: "library" } | { page: "lookup" } | { page: "deck"; id: string; sub: Sub };
 
 export function parseRoute(hash: string): Route {
-  const match = hash.match(/^#\/deck\/([^/]+)\/?(overview|hand|route|profile)?$/);
+  const match = hash.match(/^#\/deck\/([^/]+)\/?(overview|edit|hand|route|profile)?$/);
   if (match) return { page: "deck", id: match[1], sub: (match[2] as Sub) ?? "overview" };
   if (hash === "#/lookup") return { page: "lookup" };
   return { page: "library" };

@@ -9,7 +9,8 @@
   --gold: #e9c46a;
   --text: #ece9df;
   --muted: #9aa3b8;
-  --ur: #f2c14e; --sr: #f0f0f0; --r: #7fb2ff; --n: #7a8299;
+  /* Master Duel rarity colors */
+  --ur: #b06cff; --sr: #ff8c2a; --r: #4f8cff; --n: #8a8f9c;
   --error: #ff7a7a; --ok: #7ddc8b;
 }
 * { box-sizing: border-box; }
@@ -49,17 +50,26 @@ footer { text-align: center; padding: 24px; font-size: 12px; }
 /* cards */
 .wall-group { margin-bottom: 10px; }
 .wall-cards { display: flex; flex-wrap: wrap; gap: 8px; }
-.chip { position: relative; width: 96px; border-radius: 8px; border: 1px solid var(--line-soft); background: var(--panel-2); overflow: hidden; display: flex; flex-direction: column; }
+.chip { position: relative; width: 96px; border-radius: 8px; border: 1px solid var(--line-soft); background: var(--panel-2); overflow: hidden; display: flex; flex-direction: column; user-select: none; }
 .chip.small { width: 72px; }
-.chip img { width: 100%; aspect-ratio: 59 / 86; object-fit: cover; display: block; background: #0b1128; }
+.chip-art { position: relative; aspect-ratio: 59 / 86; background: #0b1128; }
+.chip-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .chip-name { font-size: 11px; line-height: 1.3; padding: 4px 6px 6px; text-align: center; min-height: 2.8em; }
 .chip.small .chip-name { font-size: 10px; min-height: 2.6em; }
-.chip::before { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; }
-.chip.rarity-UR::before { background: var(--ur); } .chip.rarity-SR::before { background: var(--sr); } .chip.rarity-R::before { background: var(--r); } .chip.rarity-N::before { background: var(--n); }
+.chip::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; }
+.chip.rarity-UR::after { background: var(--ur); } .chip.rarity-SR::after { background: var(--sr); } .chip.rarity-R::after { background: var(--r); } .chip.rarity-N::after { background: var(--n); }
 .chip.rarity-none { opacity: 0.6; }
-.chip-count { position: absolute; top: 4px; left: 4px; background: rgba(0, 0, 0, 0.75); border-radius: 6px; padding: 1px 5px; font-size: 11px; }
-.chip-ban { position: absolute; top: 4px; right: 4px; border-radius: 6px; padding: 1px 5px; font-size: 10px; background: #000; }
-.ban-forbidden { color: #ff6b6b; } .ban-limited1 { color: #ffb347; } .ban-limited2 { color: #ffe066; }
+.chip-rarity { position: absolute; top: 4px; right: 4px; font-size: 10px; font-weight: 700; line-height: 1; padding: 3px 4px; border-radius: 4px; color: #fff; text-shadow: 0 1px 1px rgba(0, 0, 0, 0.6); }
+.chip-rarity.rarity-UR { background: var(--ur); } .chip-rarity.rarity-SR { background: var(--sr); } .chip-rarity.rarity-R { background: var(--r); } .chip-rarity.rarity-N { background: var(--n); }
+.chip-count { position: absolute; bottom: 4px; right: 4px; min-width: 18px; height: 18px; border-radius: 9px; background: rgba(0, 0, 0, 0.8); border: 1px solid rgba(255, 255, 255, 0.4); color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center; padding: 0 4px; }
+.chip-ban { position: absolute; top: 4px; left: 4px; width: 18px; height: 18px; border-radius: 50%; color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.6); }
+.chip-ban.ban-forbidden { background: #d61f26; }
+.chip-ban.ban-forbidden::before { content: ""; width: 12px; height: 2px; background: #fff; transform: rotate(-45deg); }
+.chip-ban.ban-limited1 { background: #f08c2e; }
+.chip-ban.ban-limited2 { background: #e8c23a; color: #222; }
+.chip-edit { position: absolute; inset: auto 0 0 0; display: flex; justify-content: space-between; padding: 4px; opacity: 0; transition: opacity 0.12s; }
+.chip:hover .chip-edit { opacity: 1; }
+.chip-btn { width: 24px; height: 24px; padding: 0; border-radius: 12px; font-size: 15px; line-height: 1; background: rgba(0, 0, 0, 0.8); border: 1px solid rgba(255, 255, 255, 0.5); }
 .chip.clickable { cursor: pointer; transition: transform 0.12s; }
 .chip.clickable:hover { transform: translateY(-3px); border-color: var(--line); }
 .tag { display: inline-block; border: 1px solid var(--line-soft); border-radius: 6px; padding: 2px 8px; margin: 2px 4px 2px 0; font-size: 13px; }
@@ -125,3 +135,10 @@ button.small { padding: 4px 10px; font-size: 12px; }
 .workspace-head { max-width: 1200px; margin: 0 auto; padding: 14px 16px 0; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .workspace-head h2 { margin: 0; color: var(--gold); }
 .workspace-head .tabs { margin: 0; }
+
+/* editor */
+.edit { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+.edit .panel { margin: 0; }
+.edit-search input { width: 100%; margin: 4px 0; }
+.edit-deck { min-height: 70vh; }
+@media (max-width: 900px) { .edit { grid-template-columns: 1fr; } }

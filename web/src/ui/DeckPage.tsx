@@ -26,7 +26,7 @@ export function analyzeDeck(deck: Deck, data: CardData): DeckAnalysis {
 }
 
 const KIND_ORDER = ["怪兽", "魔法", "陷阱"];
-function groupMain(entries: Deck["main"]) {
+export function groupMain(entries: Deck["main"]) {
   const groups = new Map<string, Deck["main"]>(KIND_ORDER.map((kind) => [kind, []]));
   for (const entry of entries) {
     const kinds = zhKinds(entry.card).kinds;

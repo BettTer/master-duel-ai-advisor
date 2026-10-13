@@ -108,8 +108,11 @@ export function searchCards(cards: Card[], filters: SearchFilters): Card[] {
     }
     return true;
   });
+  // Names that start with the query first ("I:P" should find I:P Masquerena before every name containing "ip").
+  const query = filters.name ? norm(filters.name) : "";
+  const starts = (card: Card) => (query && names(card).some((name) => norm(name).startsWith(query)) ? 0 : 1);
   const rank = (card: Card) => card.level || card.link || 0;
-  return results.sort((a, b) => rank(b) - rank(a) || (a.en < b.en ? -1 : a.en > b.en ? 1 : 0));
+  return results.sort((a, b) => starts(a) - starts(b) || rank(b) - rank(a) || (a.en < b.en ? -1 : a.en > b.en ? 1 : 0));
 }
 
 /** Does a card belong to the archetype with this YGOPro code? Sub-archetype bits of the code must be present too. */

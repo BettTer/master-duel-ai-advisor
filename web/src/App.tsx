@@ -12,6 +12,8 @@ import { prepareDeck, type DeckPlanner } from "./engine/planner.ts";
 import { SUBS, parseRoute, readShared, routeHash, shareLink, type Route, type Sub } from "./state.ts";
 import { getLang, setLang, t, sep } from "./i18n.ts";
 import { DeckView, analyzeDeck, type DeckAnalysis } from "./ui/DeckPage.tsx";
+import { EditPage } from "./ui/EditPage.tsx";
+import { encodeYdke } from "./state.ts";
 import { HandPage } from "./ui/HandPage.tsx";
 import { LibraryPage } from "./ui/LibraryPage.tsx";
 import { LookupPage } from "./ui/LookupPage.tsx";
@@ -112,13 +114,13 @@ export function App() {
     setDecks(await listDecks());
   }
 
-  async function importDeck(text: string, name: string) {
+  async function importDeck(text: string, name: string, sub: Sub = "overview") {
     if (!data) return;
     const deck = await readDeck(text, data.cards); // throws on text that is not a deck
     const saved = newDeck(deck.name || name, text.trim());
     await saveDeck(saved);
     setDecks(await listDecks());
-    await openDeck(saved, data, "overview");
+    await openDeck(saved, data, sub);
   }
 
   async function plannerFor(current: Open): Promise<DeckPlanner> {
@@ -198,7 +200,7 @@ export function App() {
         <button className="ghost small lang" onClick={() => { const next = lang === "zh" ? "en" : "zh"; setLang(next); setLangState(next); }}>{lang === "zh" ? "EN" : "中文"}</button>
       </header>
       {status && <p className="status">{status}</p>}
-      {data && route.page === "library" && <LibraryPage decks={decks} onImport={importDeck} onOpen={(id) => go({ page: "deck", id, sub: "overview" })}
+      {data && route.page === "library" && <LibraryPage decks={decks} onImport={importDeck} onCreate={(name) => importDeck("ydke://!!!", name, "edit")} onOpen={(id) => go({ page: "deck", id, sub: "overview" })}
         onRename={async (id, name) => { const saved = decks.find((deck) => deck.id === id); if (saved) { await saveDeck({ ...saved, name }); setDecks(await listDecks()); } }}
         onDelete={async (id) => { await deleteDeck(id); setDecks(await listDecks()); if (open?.saved.id === id) setOpen(null); }} />}
       {data && route.page === "lookup" && <LookupPage data={data} images={images} />}
@@ -211,6 +213,11 @@ export function App() {
             <button className="ghost small" onClick={() => { navigator.clipboard?.writeText(shareLink(inDeck.deck, inDeck.hand)); setProgress(t("链接已复制")); }}>{t("复制分享链接")}</button>
           </div>
           {sub === "overview" && <DeckView data={data} deck={inDeck.deck} analysis={inDeck.analysis} images={images} />}
+          {sub === "edit" && <EditPage data={data} deck={inDeck.deck} images={images} onChange={(changed) => {
+            // Edits are saved as YDKE; what was computed for the old list no longer applies.
+            setOpen((current) => (current ? { ...current, deck: changed, analysis: analyzeDeck(changed, data), route: null, profile: null, hand: current.hand.filter((card) => changed.main.some((entry) => entry.card.id === card.id)) } : current));
+            void update({ text: encodeYdke(changed) });
+          }} />}
           {sub === "hand" && <HandPage data={data} deck={inDeck.deck} hand={inDeck.hand} setHand={(hand) => setOpen((current) => (current ? { ...current, hand } : current))} tiers={inDeck.saved.tiers}
             setTiers={(tiers) => void update({ tiers })} seconds={seconds} setSeconds={setSeconds} onPlan={plan} busy={busy} progress={progress} images={images} />}
           {sub === "route" && <RoutePage view={inDeck.route} data={data} images={images} />}

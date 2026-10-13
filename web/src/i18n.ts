@@ -23,7 +23,12 @@ const EN: Record<string, string> = {
     "Card data from ygocdb.com, Master Duel Meta and Project Ignis; the rules engine is EDOPro's core. Card text and images are KONAMI's.",
   " 数据构建于 ": " Data built ",
   // workspace tabs
-  "卡表与检查": "List & checks", "起手": "Hand", "路线图": "Route", "全景": "Profile",
+  "卡表与检查": "List & checks", "编辑": "Edit", "起手": "Hand", "路线图": "Route", "全景": "Profile",
+  // editor
+  "新建空卡组": "New empty deck", "空卡组。在右边找卡，拖过来或者点一下。": "Empty deck. Find cards on the right and drag or click them.", "主卡组": "Main Deck", "找卡": "Find cards", "卡文里的词": "Words in the card text", " 张（最多显示 60）": " cards (60 shown at most)",
+  "只显示 MD 已实装的卡。拖到左边加入卡组。": "Only cards in Master Duel. Drag a card to the left to add it.",
+  "从右边把卡拖进来加一张；卡上的 ＋ － 或右键改张数。": "Drag a card in from the right to add a copy; use + / − on a card, or right-click, to change the count.",
+  "禁止卡": "Forbidden", " 最多 ": ": at most ", " 张": "", "主卡组已经 60 张": "The Main Deck already has 60 cards", "额外卡组已经 15 张": "The Extra Deck already has 15 cards",
   // deck view
   "卡表": "Deck list", "主": "Main", "额外": "Extra", "怪兽": "Monsters", "魔法": "Spells", "陷阱": "Traps", "额外卡组": "Extra Deck", "检查": "Checks",
   "没有发现张数、禁限或实装方面的问题。": "No problems with deck size, the banlist or availability.",
