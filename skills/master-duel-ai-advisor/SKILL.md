@@ -9,18 +9,18 @@ This skill lets you base Master Duel deckbuilding advice on the real card text, 
 
 ## The lookup script
 
-`scripts/mdcard.py` (Python 3, standard library only). Paths below are relative to this skill's directory.
+`scripts/mdcard.mjs` (Node.js 18 or later, nothing to install). Paths below are relative to this skill's directory.
 
 ```bash
-python3 scripts/mdcard.py card 废品大王              # any language, part of a name, or a passcode
-python3 scripts/mdcard.py card 53971455 79415624 "Junk Meister"   # several cards in one run
-python3 scripts/mdcard.py search --kind 同调 --level 12 --text "调整＋调整以外的怪兽1只以上"
-python3 scripts/mdcard.py search --kind 调整 --level 4 --attr 光 --race 魔法师
-python3 scripts/mdcard.py search --kind 速攻 --text "「阿不思的落胤」"
-python3 scripts/mdcard.py banlist --status limited1
-python3 scripts/mdcard.py banlist --upcoming        # an announced list that is not in effect yet
-python3 scripts/mdcard.py notes                     # the user's preferences and lessons (see below)
-python3 scripts/mdcard.py update                    # force a refresh of cards and banlist
+node scripts/mdcard.mjs card 废品大王              # any language, part of a name, or a passcode
+node scripts/mdcard.mjs card 53971455 79415624 "Junk Meister"   # several cards in one run
+node scripts/mdcard.mjs search --kind 同调 --level 12 --text "调整＋调整以外的怪兽1只以上"
+node scripts/mdcard.mjs search --kind 调整 --level 4 --attr 光 --race 魔法师
+node scripts/mdcard.mjs search --kind 速攻 --text "「阿不思的落胤」"
+node scripts/mdcard.mjs banlist --status limited1
+node scripts/mdcard.mjs banlist --upcoming        # an announced list that is not in effect yet
+node scripts/mdcard.mjs notes                     # the user's preferences and lessons (see below)
+node scripts/mdcard.mjs update                    # force a refresh of cards and banlist
 ```
 
 The first run downloads about 30 MB of card data and caches it in `~/.cache/master-duel-ai-advisor` (refreshed weekly), so let the user know if it takes a moment.
@@ -44,13 +44,13 @@ Material and condition wording is more uniform in the Chinese text (for example 
 
 ## The user's notes
 
-Run `python3 scripts/mdcard.py notes` at the start of a Master Duel conversation. It prints the user's personal notes file (`~/.config/master-duel-ai-advisor/notes.md`, or `$MDAA_CONFIG_DIR/notes.md`), which skill updates never touch. Follow the preferences in it. They change how you answer and what you recommend, for example "mostly plays going second" or "has no UR points", but they never relax the data rules below.
+Run `node scripts/mdcard.mjs notes` at the start of a Master Duel conversation. It prints the user's personal notes file (`~/.config/master-duel-ai-advisor/notes.md`, or `$MDAA_CONFIG_DIR/notes.md`), which skill updates never touch. Follow the preferences in it. They change how you answer and what you recommend, for example "mostly plays going second" or "has no UR points", but they never relax the data rules below.
 
 When the user states a lasting preference, or corrects you in a way that should still apply next time, save it and tell them in one line what you saved:
 
 ```bash
-python3 scripts/mdcard.py notes --preference "主要打后手，UR 点不够"
-python3 scripts/mdcard.py notes --lesson "烙印融合锁的是发动的整个回合，不能先同调再开"
+node scripts/mdcard.mjs notes --preference "主要打后手，UR 点不够"
+node scripts/mdcard.mjs notes --lesson "烙印融合锁的是发动的整个回合，不能先同调再开"
 ```
 
 Keep each entry to one specific sentence. Do not save one-off details of the current deck or conversation.

@@ -1,0 +1,224 @@
+// KONAMI does not publish Master Duel Forbidden & Limited lists in a machine-readable form.
+// The banlist comes from masterduelmeta.com (current statuses plus the dated history of list
+// changes), with the yaml-yugi limit regulation data (rebuilt daily from Yugipedia) as a fallback.
+import { existsSync } from "node:fs";
+import { DAY, ageOf, cachePath, readJson, writeText } from "./cache.ts";
+import type { Card } from "./cards.ts";
+import { fetchJson, fetchText } from "./http.ts";
+
+export type Status = "forbidden" | "limited1" | "limited2";
+export type BanStatus = Status | "unlimited" | "unknown";
+
+export interface Entry {
+  id?: number | null; // passcode
+  cid?: number; // KONAMI card database ID
+  name?: string;
+  status: Status;
+}
+
+export interface Regulation {
+  date: string;
+  entries: Entry[];
+}
+
+export interface Banlist {
+  source: string;
+  current: Regulation;
+  upcoming: Regulation | null;
+}
+
+interface Endpoints {
+  cards: string;
+  changes: string;
+}
+
+type GetText = (url: string) => Promise<string>;
+type GetJson = (url: string) => Promise<any>;
+
+const BANLIST_CACHE = cachePath("md_banlist.json");
+const ENDPOINTS_CACHE = cachePath("mdm_endpoints.json");
+const BANLIST_MAX_AGE = DAY;
+
+const MDM_SITE = "https://www.masterduelmeta.com";
+// What Master Duel Meta's banlist page called when this was written; tried after rediscovery fails.
+export const MDM_KNOWN_ENDPOINTS: Endpoints = {
+  cards: `${MDM_SITE}/api/v1/cards?tcgBanStatus[$or][$exists]=true&ocgBanStatus[$or][$exists]=true`
+    + "&banStatus[$or][$exists]=true&alternateArt[$ne]=true&limit=0",
+  changes: `${MDM_SITE}/api/v1/banlist-changes?sort=-date`,
+};
+const MDM_STATUS: Record<string, Status> = { "Forbidden": "forbidden", "Limited 1": "limited1", "Limited 2": "limited2" };
+const LIMIT_STATUS: Record<number, Status> = { 0: "forbidden", 1: "limited1", 2: "limited2" };
+const YAML_YUGI_URL = "https://dawnbrandbots.github.io/yaml-yugi-limit-regulation/master-duel/{}.vector.json";
+
+function mustMatch(text: string, pattern: RegExp, what: string): RegExpMatchArray {
+  const match = text.match(pattern);
+  if (!match) throw new Error(`${what} not found`);
+  return match;
+}
+
+/** Read the API calls Master Duel Meta's own banlist page makes, so a change on their side is picked up. */
+export async function discoverMdmEndpoints(get: GetText = fetchText): Promise<Endpoints> {
+  const page = await get(`${MDM_SITE}/terms-of-service`); // any small page loads the app entry script
+  const appPath = mustMatch(page, /\/_app\/immutable\/entry\/app\.[\w-]+\.js/, "app entry script")[0];
+  const app = await get(MDM_SITE + appPath);
+  const node = mustMatch(app, /"\/forbidden-limited-list":\[(\d+)/, "banlist route")[1];
+  const nodePath = mustMatch(app, new RegExp(`nodes/${node}\\.[\\w-]+\\.js`), "banlist page script")[0];
+  const nodeScript = await get(`${MDM_SITE}/_app/immutable/${nodePath}`);
+  const queries = [...nodeScript.matchAll(/"((?:cards|banlist-changes)\?[^"]*)"/g)].map((match) => match[1]);
+  const cardsQuery = queries.find((query) => query.startsWith("cards?") && query.includes("banStatus"));
+  const changesQuery = queries.find((query) => query.startsWith("banlist-changes?"));
+  if (!cardsQuery || !changesQuery) throw new Error("banlist queries not found in the page script");
+  const chunks = [...nodeScript.matchAll(/chunks\/[\w.-]+\.js/g)].map((match) => match[0]);
+  chunks.sort((a, b) => Number(!a.includes("Fetch")) - Number(!b.includes("Fetch"))); // the request helper first
+  for (const chunk of chunks) {
+    const base = (await get(`${MDM_SITE}/_app/immutable/${chunk}`)).match(/"(\/api\/v\d+\/)"/);
+    if (base) return { cards: MDM_SITE + base[1] + cardsQuery, changes: MDM_SITE + base[1] + changesQuery };
+  }
+  throw new Error("API base path not found");
+}
+
+const encodeQuery = (url: string) => url.replace(/[[\]$]/g, (char) => encodeURIComponent(char));
+
+const jstDate = (iso: string) =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(new Date(iso)); // YYYY-MM-DD
+
+export async function readMasterDuelMeta(endpoints: Endpoints, get: GetJson = fetchJson): Promise<Omit<Banlist, "source">> {
+  const rows: any[] = await get(encodeQuery(endpoints.cards));
+  const statuses = new Map<string, Entry>();
+  for (const row of rows) {
+    if (row.banStatus in MDM_STATUS) {
+      statuses.set(row.name, { id: row.konamiID ? Number(row.konamiID) : null, name: row.name, status: MDM_STATUS[row.banStatus] });
+    }
+  }
+  if (statuses.size < 20) {
+    throw new Error(`only ${statuses.size} cards with a Master Duel status; the data format may have changed`);
+  }
+  const changes: any[] = await get(encodeQuery(endpoints.changes));
+  for (const change of changes) change.date ??= change.announced; // a few old records only have "announced"
+  const now = Date.now();
+  const time = (change: any) => new Date(change.date).getTime();
+  const inEffect = changes.filter((change) => time(change) <= now).sort((a, b) => time(b) - time(a));
+  const pending = changes.filter((change) => time(change) > now).sort((a, b) => time(a) - time(b));
+  if (inEffect.length === 0) throw new Error("no list in effect");
+
+  const current = new Map(statuses);
+  let upcoming: Regulation | null = null;
+  if (pending.length > 0) {
+    // For the cards an announced list changes, "from" is the status in force and "to" the coming one.
+    const next = new Map(statuses);
+    for (const change of pending[0].changes) {
+      const name: string = change.card.name;
+      const known = statuses.get(name) ?? { id: null, name };
+      for (const [target, field] of [[current, "from"], [next, "to"]] as const) {
+        if (change[field] in MDM_STATUS) target.set(name, { ...known, status: MDM_STATUS[change[field]] });
+        else target.delete(name);
+      }
+    }
+    upcoming = { date: jstDate(pending[0].date), entries: [...next.values()] };
+  }
+  return { current: { date: jstDate(inEffect[0].date), entries: [...current.values()] }, upcoming };
+}
+
+async function banlistFromMasterDuelMeta(): Promise<Omit<Banlist, "source">> {
+  const candidates: [string, Endpoints][] = [];
+  try {
+    candidates.push(["rediscovered", await discoverMdmEndpoints()]);
+  } catch (error) {
+    console.error(`Could not rediscover Master Duel Meta's banlist endpoints (${error}).`);
+  }
+  if (existsSync(ENDPOINTS_CACHE)) candidates.push(["last working", readJson(ENDPOINTS_CACHE)]);
+  candidates.push(["known", MDM_KNOWN_ENDPOINTS]);
+
+  const tried = new Set<string>();
+  const errors: string[] = [];
+  for (const [label, endpoints] of candidates) {
+    const key = JSON.stringify(endpoints);
+    if (tried.has(key)) continue;
+    tried.add(key);
+    try {
+      const banlist = await readMasterDuelMeta(endpoints);
+      writeText(ENDPOINTS_CACHE, key);
+      return banlist;
+    } catch (error) {
+      errors.push(`${label} endpoints: ${error}`);
+    }
+  }
+  throw new Error(errors.join("; "));
+}
+
+async function banlistFromYamlYugi(): Promise<Omit<Banlist, "source">> {
+  const entries = (vector: any): Entry[] =>
+    Object.entries(vector.regulation).map(([cid, limit]) => ({ cid: Number(cid), status: LIMIT_STATUS[limit as number] }));
+  const current = await fetchJson(YAML_YUGI_URL.replace("{}", "current"), 15);
+  let upcoming = null;
+  try {
+    upcoming = await fetchJson(YAML_YUGI_URL.replace("{}", "upcoming"), 15);
+  } catch {
+    // only published while a new list is announced but not in effect yet
+  }
+  return {
+    current: { date: current.date, entries: entries(current) },
+    upcoming: upcoming && { date: upcoming.date, entries: entries(upcoming) },
+  };
+}
+
+const SOURCES: [string, () => Promise<Omit<Banlist, "source">>][] = [
+  ["masterduelmeta.com", banlistFromMasterDuelMeta],
+  ["yaml-yugi", banlistFromYamlYugi],
+];
+
+/** The Master Duel banlist, refreshed at most once a day; null if it could never be downloaded. */
+export async function loadBanlist(force = false): Promise<Banlist | null> {
+  if (force || ageOf(BANLIST_CACHE) > BANLIST_MAX_AGE) {
+    const errors: string[] = [];
+    let banlist: Banlist | null = null;
+    for (const [source, download] of SOURCES) {
+      try {
+        banlist = { ...(await download()), source };
+        break;
+      } catch (error) {
+        errors.push(`${source}: ${error}`);
+      }
+    }
+    if (banlist) {
+      writeText(BANLIST_CACHE, JSON.stringify(banlist));
+    } else if (existsSync(BANLIST_CACHE)) {
+      console.error(`Could not refresh the Master Duel banlist (${errors.join("; ")}); using the last downloaded copy.`);
+    } else {
+      console.error(`Could not download the Master Duel banlist (${errors.join("; ")}).`);
+      return null;
+    }
+  }
+  return readJson(BANLIST_CACHE);
+}
+
+export function entryKeys(entry: Entry): string[] {
+  const keys: string[] = [];
+  if (entry.cid) keys.push(`cid:${entry.cid}`);
+  if (entry.id) keys.push(`id:${entry.id}`);
+  if (entry.name) keys.push(`name:${entry.name.toLowerCase()}`);
+  return keys;
+}
+
+export function cardKeys(card: Card): string[] {
+  return [
+    `cid:${card.cid}`,
+    ...[card.id, ...card.altIds].map((id) => `id:${id}`),
+    ...[card.en, ...card.aliases].filter(Boolean).map((name) => `name:${name.toLowerCase()}`),
+  ];
+}
+
+const indexes = new WeakMap<Regulation, Map<string, Status>>();
+
+export function banStatus(card: Card, regulation: Regulation): Status | "unlimited" {
+  let index = indexes.get(regulation);
+  if (!index) {
+    index = new Map(regulation.entries.flatMap((entry) => entryKeys(entry).map((key) => [key, entry.status] as const)));
+    indexes.set(regulation, index);
+  }
+  for (const key of cardKeys(card)) {
+    const status = index.get(key);
+    if (status) return status;
+  }
+  return "unlimited";
+}

@@ -6,7 +6,7 @@ Tools for using an AI assistant to build and tune Yu-Gi-Oh! Master Duel decks. T
 
 [中文说明](#中文说明)
 
-**Status:** The first tool, Master Duel card lookup, is available as a Claude Code skill (see [Installation](#installation)). The rest of the roadmap is still in the design stage.
+**Status:** The first tool, Master Duel card lookup, is available as a Claude Code skill and as an MCP server (see [Installation](#installation)). The rest of the roadmap is still in the design stage.
 
 ## Why this project exists
 
@@ -60,12 +60,12 @@ Combo generation is not part of the initial scope. An assistant cannot reliably 
 ## Formats
 
 - **Claude Skill.** *Available now for Claude Code.* A `SKILL.md` file and a small script. It does not require a separate hosted service or add an API bill for this project.
-- **MCP server.** The project should work with any AI assistant, not only Claude. The same functions will be exposed through MCP so that other assistants and AI clients that support MCP can use them.
+- **MCP server.** *Available now, run from a local copy of this repository.* The project should work with any AI assistant, not only Claude. The same functions are exposed through MCP so that other assistants and AI clients that support MCP can use them.
 - **Static site on GitHub Pages.** Card lookup, calculations and checks will run locally in the browser without an AI model. Optional AI features will use an API key supplied by the user and stored only in that browser. The hand editor and route maps from the roadmap will also be built here.
 
 ## Installation
 
-The card lookup skill currently works with Claude Code. It needs Python 3.8 or later, with no extra packages, and an internet connection the first time it runs.
+The card lookup skill currently works with Claude Code. It needs Node.js 18 or later and an internet connection the first time it runs.
 
 ```bash
 git clone https://github.com/BettTer/master-duel-ai-advisor.git
@@ -82,12 +82,38 @@ ln -s "$(pwd)/master-duel-ai-advisor/skills/master-duel-ai-advisor" ~/.claude/sk
 After that, ask Claude Code about Master Duel cards or decks as usual, and the skill will be used when it is relevant. The script can also be run on its own:
 
 ```bash
-python3 ~/.claude/skills/master-duel-ai-advisor/scripts/mdcard.py card "Junk Meister"
+node ~/.claude/skills/master-duel-ai-advisor/scripts/mdcard.mjs card "Junk Meister"
 ```
 
 On its first run, the script downloads about 30 MB of card data into `~/.cache/master-duel-ai-advisor` and refreshes it weekly.
 
 The skill has not been tested in the Claude apps (claude.ai and desktop) yet. The script needs internet access, which depends on each app's code execution settings.
+
+### MCP server
+
+For assistants other than Claude Code, build the MCP server from a local copy of this repository:
+
+```bash
+git clone https://github.com/BettTer/master-duel-ai-advisor.git
+cd master-duel-ai-advisor
+npm install
+npm run build
+```
+
+Then add it to your client as a stdio server that runs `node /absolute/path/to/master-duel-ai-advisor/dist/mcp.mjs`. In Claude Desktop, for example, add this to `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "master-duel-ai-advisor": {
+      "command": "node",
+      "args": ["/absolute/path/to/master-duel-ai-advisor/dist/mcp.mjs"]
+    }
+  }
+}
+```
+
+The server offers the same functions as the skill (`lookup_cards`, `search_cards`, `get_banlist`, `read_notes`, `add_note`) and includes the same working rules. In Claude Code, the skill alone is enough.
 
 ## Personal notes
 
@@ -106,6 +132,17 @@ When a correction applies to every player, such as wrong card data or a rule the
 
 Card text and images are copyrighted by KONAMI. This repository does not redistribute the card database, the banlist or card images. The tools fetch the required data when they run and cache it on the user's machine.
 
+## Development
+
+The source code is in `src/`. The skill's script, `skills/master-duel-ai-advisor/scripts/mdcard.mjs`, is a bundled build of `src/cli.ts`, so rebuild it after changing the source.
+
+```bash
+npm install
+npm test
+npm run typecheck
+npm run build
+```
+
 ## License
 
 [Apache License 2.0](LICENSE) applies to the code and documentation in this repository. It does not cover KONAMI's card text or images.
@@ -118,7 +155,7 @@ Card text and images are copyrighted by KONAMI. This repository does not redistr
 
 > 这是一个非官方玩家项目，与 KONAMI 无关，也未得到 KONAMI 的认可。「游戏王」和「Master Duel」是 KONAMI 的商标。
 
-**项目状态：** 第一个工具「MD 查卡」已经可以作为 Claude Code 的 Skill 使用（见[安装](#安装)）。路线图的其余部分还在设计阶段。
+**项目状态：** 第一个工具「MD 查卡」已经可以作为 Claude Code 的 Skill 和 MCP 服务使用（见[安装](#安装)）。路线图的其余部分还在设计阶段。
 
 ## 为什么做这个项目
 
@@ -172,12 +209,12 @@ MD 有独立的禁限表。按照 TCG 或 OCG 禁限表给出的建议，可能�
 ## 使用方式
 
 - **Claude Skill。** *Claude Code 已可使用。* 内容包括一个 `SKILL.md` 和一个小脚本，不需要为这个项目单独部署服务或支付额外的 API 费用。
-- **MCP 服务。** 这个项目应该支持所有 AI 助手，而不只是 Claude。同一批功能会通过 MCP 提供出来，让其他支持 MCP 的 AI 助手和客户端也能使用。
+- **MCP 服务。** *已可使用，需要从本仓库的本地副本运行。* 这个项目应该支持所有 AI 助手，而不只是 Claude。同一批功能通过 MCP 提供出来，让其他支持 MCP 的 AI 助手和客户端也能使用。
 - **GitHub Pages 静态网页。** 查卡、计算和检查功能会直接在浏览器中运行，不依赖 AI 模型。可选的 AI 功能使用用户自己提供的 API key，并且只保存在当前浏览器中。路线图中的起手编辑器和展开路线图也会做在这里。
 
 ## 安装
 
-目前查卡 Skill 支持 Claude Code。需要 Python 3.8 或更高版本（不用安装额外的包），第一次运行时需要联网。
+目前查卡 Skill 支持 Claude Code。需要 Node.js 18 或更高版本，第一次运行时需要联网。
 
 ```bash
 git clone https://github.com/BettTer/master-duel-ai-advisor.git
@@ -194,12 +231,38 @@ ln -s "$(pwd)/master-duel-ai-advisor/skills/master-duel-ai-advisor" ~/.claude/sk
 之后照常向 Claude Code 询问 MD 的卡片或卡组问题即可，需要时它会自动使用这个 Skill。也可以直接运行脚本：
 
 ```bash
-python3 ~/.claude/skills/master-duel-ai-advisor/scripts/mdcard.py card 废品大王
+node ~/.claude/skills/master-duel-ai-advisor/scripts/mdcard.mjs card 废品大王
 ```
 
 第一次运行时，脚本会下载约 30 MB 的卡片数据到 `~/.cache/master-duel-ai-advisor`，之后每周更新一次。
 
 这个 Skill 还没有在 Claude 客户端（claude.ai 和桌面版）中测试过。脚本需要联网，能否联网取决于各客户端的代码执行设置。
+
+### MCP 服务
+
+在 Claude Code 以外的 AI 助手里使用时，先从本仓库的本地副本构建 MCP 服务：
+
+```bash
+git clone https://github.com/BettTer/master-duel-ai-advisor.git
+cd master-duel-ai-advisor
+npm install
+npm run build
+```
+
+然后在客户端里添加一个 stdio 服务，运行 `node /absolute/path/to/master-duel-ai-advisor/dist/mcp.mjs`。以 Claude Desktop 为例，在 `claude_desktop_config.json` 里加入：
+
+```json
+{
+  "mcpServers": {
+    "master-duel-ai-advisor": {
+      "command": "node",
+      "args": ["/absolute/path/to/master-duel-ai-advisor/dist/mcp.mjs"]
+    }
+  }
+}
+```
+
+这个服务提供和 Skill 相同的功能（`lookup_cards`、`search_cards`、`get_banlist`、`read_notes`、`add_note`），也带有同样的使用规则。在 Claude Code 里只用 Skill 就够了。
 
 ## 个人笔记
 
@@ -217,6 +280,17 @@ AI 助手会把每位玩家的偏好和纠正记在 `~/.config/master-duel-ai-ad
 - [yaml-yugi limit regulation](https://github.com/DawnbrandBots/yaml-yugi-limit-regulation)：备用的禁限表来源，每天根据 Yugipedia 对每一期禁限表的记录重新生成。只有在连不上 Master Duel Meta 时才会使用。
 
 卡文和卡图的版权属于 KONAMI。本仓库不会重新分发卡片数据库、禁限表或卡图。工具运行时会按需获取数据，并将其缓存在用户自己的电脑上。
+
+## 开发
+
+源代码在 `src/` 里。Skill 用的脚本 `skills/master-duel-ai-advisor/scripts/mdcard.mjs` 是由 `src/cli.ts` 打包生成的，修改源代码后需要重新构建。
+
+```bash
+npm install
+npm test
+npm run typecheck
+npm run build
+```
 
 ## 许可证
 
