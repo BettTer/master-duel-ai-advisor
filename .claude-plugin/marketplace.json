@@ -1,0 +1,15 @@
+{
+  "name": "master-duel-ai-advisor",
+  "description": "Yu-Gi-Oh! Master Duel deckbuilding tools for Claude Code",
+  "owner": {
+    "name": "BettTer",
+    "url": "https://github.com/BettTer"
+  },
+  "plugins": [
+    {
+      "name": "master-duel-ai-advisor",
+      "source": "./",
+      "description": "Exact card text, Master Duel rarity and banlist, card pool search, deck import and checks"
+    }
+  ]
+}

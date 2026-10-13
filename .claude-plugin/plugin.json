@@ -1,0 +1,13 @@
+{
+  "name": "master-duel-ai-advisor",
+  "displayName": "Master Duel AI Advisor",
+  "description": "Yu-Gi-Oh! Master Duel deckbuilding with verified data: exact card text, Master Duel rarity and banlist, card pool search, deck import and checks",
+  "author": {
+    "name": "BettTer",
+    "url": "https://github.com/BettTer"
+  },
+  "homepage": "https://github.com/BettTer/master-duel-ai-advisor",
+  "repository": "https://github.com/BettTer/master-duel-ai-advisor",
+  "license": "Apache-2.0",
+  "keywords": ["yugioh", "yu-gi-oh", "master-duel", "deck-builder"]
+}

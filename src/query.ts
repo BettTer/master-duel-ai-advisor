@@ -111,3 +111,35 @@ export function searchCards(cards: Card[], filters: SearchFilters): Card[] {
   const rank = (card: Card) => card.level || card.link || 0;
   return results.sort((a, b) => rank(b) - rank(a) || (a.en < b.en ? -1 : a.en > b.en ? 1 : 0));
 }
+
+/** Does a card belong to the archetype with this YGOPro code? Sub-archetype bits of the code must be present too. */
+function inSet(card: Card, code: number): boolean {
+  return card.setcodes.some((setcode) => (setcode & 0xfff) === (code & 0xfff) && (setcode & code & 0xf000) === (code & 0xf000));
+}
+
+/**
+ * Archetype membership for names as written in card text, such as 「死狱乡」. A card belongs if its name contains
+ * the word, its text says it is also treated as one, or it carries the archetype's code. The code is the one most
+ * cards with the word in their Chinese name share; names alone miss members such as 赫圣之妖骑士 (a 「死狱乡」 card).
+ */
+export function archetypeLookup(cards: Card[]): (card: Card, archetype: string) => boolean {
+  const codes = new Map<string, number | null>();
+  const codeOf = (archetype: string): number | null => {
+    if (!codes.has(archetype)) {
+      const counts = new Map<number, number>();
+      for (const card of cards) {
+        if (!card.cn.includes(archetype)) continue;
+        for (const code of new Set(card.setcodes)) counts.set(code, (counts.get(code) ?? 0) + 1);
+      }
+      const [best] = [...counts].sort((a, b) => b[1] - a[1]);
+      codes.set(archetype, best && best[1] >= 2 ? best[0] : null);
+    }
+    return codes.get(archetype)!;
+  };
+  return (card, archetype) => {
+    if ([card.cn, card.md, card.sc, card.jp].some((name) => name.includes(archetype))) return true;
+    if (card.descZh.includes(`也当作「${archetype}」`)) return true;
+    const code = codeOf(archetype);
+    return code !== null && inSet(card, code);
+  };
+}

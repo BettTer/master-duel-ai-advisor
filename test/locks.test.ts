@@ -3,6 +3,8 @@ import { test } from "node:test";
 import { allows, analyzeLocks, parseAllowed, parseLocks } from "../src/locks.ts";
 import { card } from "./helpers.ts";
 
+const byName = (testCard: { cn: string }, archetype: string) => testCard.cn.includes(archetype);
+
 const meister = card({
   id: 1, cn: "废品大王",
   descZh: "这个卡名的①②③的效果1回合各能使用1次。\r\n①：把额外卡组1只「战士」、「星尘」同调怪兽给对方观看才能发动。这张卡从手卡特殊召唤。这个回合，自己不是同调怪兽不能从额外卡组特殊召唤。\r\n②：……",
@@ -44,13 +46,13 @@ test("parseLocks finds the effect and when the lock applies", () => {
 
 test("allows checks an Extra Deck monster against a lock", () => {
   const level8FusionOrSynchro = parseAllowed("8星的融合·同调怪兽")!;
-  assert.ok(allows(level8FusionOrSynchro, albion));
-  assert.ok(allows(level8FusionOrSynchro, stardust));
-  assert.ok(!allows(level8FusionOrSynchro, baronne));
+  assert.ok(allows(level8FusionOrSynchro, albion, byName));
+  assert.ok(allows(level8FusionOrSynchro, stardust, byName));
+  assert.ok(!allows(level8FusionOrSynchro, baronne, byName));
 });
 
 test("analyzeLocks lists what each lock rules out and pairs that narrow or empty the Extra Deck", () => {
-  const { locks, pairs } = analyzeLocks([meister, brandedFusion, whiteDragon], [albion, stardust, baronne]);
+  const { locks, pairs } = analyzeLocks([meister, brandedFusion, whiteDragon], [albion, stardust, baronne], byName);
   assert.deepEqual(locks.map(({ lock, blocked }) => [lock.card.cn, blocked.map((blockedCard) => blockedCard.cn)]), [
     ["废品大王", ["烙印龙 白界龙"]],
     ["烙印融合", ["星尘龙", "鲜花女男爵"]],

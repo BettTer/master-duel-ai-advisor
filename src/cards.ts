@@ -12,13 +12,14 @@ const CARDS_CACHE = cachePath("cards.json");
 const CHECKED_MARK = cachePath("cards_checked"); // its modification time is when the sources were last checked
 const CARDS_MAX_AGE = 7 * DAY;
 const CHECK_INTERVAL = 3600; // seconds between version checks
-const CACHE_VERSION = 2;
+const CACHE_VERSION = 3;
 const YGOPRODECK_RARITY: Record<string, string> = { "Ultra Rare": "UR", "Super Rare": "SR", "Rare": "R", "Common": "N" };
 
 export interface Card {
   id: number;
   cid: number | null; // KONAMI card database ID, used by banlists
   altIds: number[];
+  setcodes: number[]; // archetype codes, as in YGOPro
   cn: string; // YGOPro Chinese name
   md: string; // Chinese name shown in Master Duel
   sc: string;
@@ -58,6 +59,13 @@ interface CardCache {
   cards: Card[];
 }
 
+/** YGOPro packs up to four 16-bit archetype codes into one number. */
+function splitSetcode(setcode: number): number[] {
+  const codes: number[] = [];
+  for (let rest = BigInt(setcode); rest > 0n; rest >>= 16n) codes.push(Number(rest & 0xffffn));
+  return codes;
+}
+
 function makeCard(cdb: any, ypd: any, pool: Map<number, MdCard> | null): Card {
   cdb ??= {};
   ypd ??= {};
@@ -73,6 +81,7 @@ function makeCard(cdb: any, ypd: any, pool: Map<number, MdCard> | null): Card {
     id,
     cid: cdb.cid ?? misc.konami_id ?? null,
     altIds,
+    setcodes: splitSetcode(cdb.data?.setcode ?? 0),
     cn: cdb.cn_name ?? "",
     md: cdb.md_name ?? "",
     sc: cdb.sc_name ?? "",

@@ -3,6 +3,7 @@ import { banStatus, cardKeys, entryKeys, jstDate, type BanStatus, type Banlist, 
 import type { Card } from "./cards.ts";
 import { SECTIONS, type Deck, type Section } from "./deck.ts";
 import type { Lock, LockPair, LockReport } from "./locks.ts";
+import type { Reference } from "./refs.ts";
 import { findCards, inMasterDuel, zhKinds } from "./query.ts";
 
 const BAN_LABEL: Record<BanStatus, string> = {
@@ -158,7 +159,24 @@ function formatLocks(locks: LockReport[], pairs: LockPair[]): string[] {
   return lines;
 }
 
-export function formatDeck(deck: Deck, issues: string[], banlist: Banlist | null, locks: { locks: LockReport[]; pairs: LockPair[] }): string {
+function formatMissing(missing: Reference[]): string[] {
+  if (missing.length === 0) return [];
+  const lines = ["", "可能没有目标（按卡名和字段判断，请确认）："];
+  for (const { card, effect, text, options } of missing) {
+    const zones = new Set(options.flatMap((option) => option.zones));
+    const where = zones.size === 2 ? "卡组和额外卡组里都" : zones.has("extra") ? "额外卡组里" : "卡组里";
+    lines.push(`  - 「${card.cn || card.en}」${effect}：${text} → ${where}没有符合的卡（这张卡自己不算）`);
+  }
+  return lines;
+}
+
+export function formatDeck(
+  deck: Deck,
+  issues: string[],
+  banlist: Banlist | null,
+  locks: { locks: LockReport[]; pairs: LockPair[] },
+  missing: Reference[],
+): string {
   const size = (section: Section) => deck[section].reduce((sum, entry) => sum + entry.count, 0);
   const byRarity = new Map<string, number>();
   for (const section of SECTIONS) {
@@ -181,7 +199,7 @@ export function formatDeck(deck: Deck, issues: string[], banlist: Banlist | null
       lines.push(`  ${count} ${namesLine(card)} | ${card.mdRarity || "-"} | ${banText(card, banlist)}`);
     }
   }
-  lines.push(...formatLocks(locks.locks, locks.pairs));
+  lines.push(...formatLocks(locks.locks, locks.pairs), ...formatMissing(missing));
   lines.push("", "检查：", ...(issues.length > 0 ? issues.map((issue) => `  - ${issue}`) : ["  没有发现张数、禁限或实装方面的问题。"]));
   lines.push(`（${banlistNote(banlist)}）`);
   return lines.join("\n");

@@ -780,8 +780,13 @@ var CARDS_CACHE = cachePath("cards.json");
 var CHECKED_MARK = cachePath("cards_checked");
 var CARDS_MAX_AGE = 7 * DAY;
 var CHECK_INTERVAL = 3600;
-var CACHE_VERSION = 2;
+var CACHE_VERSION = 3;
 var YGOPRODECK_RARITY = { "Ultra Rare": "UR", "Super Rare": "SR", "Rare": "R", "Common": "N" };
+function splitSetcode(setcode) {
+  const codes = [];
+  for (let rest = BigInt(setcode); rest > 0n; rest >>= 16n) codes.push(Number(rest & 0xffffn));
+  return codes;
+}
 function makeCard(cdb, ypd, pool) {
   cdb ??= {};
   ypd ??= {};
@@ -795,6 +800,7 @@ function makeCard(cdb, ypd, pool) {
     id,
     cid: cdb.cid ?? misc.konami_id ?? null,
     altIds,
+    setcodes: splitSetcode(cdb.data?.setcode ?? 0),
     cn: cdb.cn_name ?? "",
     md: cdb.md_name ?? "",
     sc: cdb.sc_name ?? "",
@@ -1005,6 +1011,30 @@ ${normText(card.descEn)}`;
   });
   const rank = (card) => card.level || card.link || 0;
   return results.sort((a, b) => rank(b) - rank(a) || (a.en < b.en ? -1 : a.en > b.en ? 1 : 0));
+}
+function inSet(card, code) {
+  return card.setcodes.some((setcode) => (setcode & 4095) === (code & 4095) && (setcode & code & 61440) === (code & 61440));
+}
+function archetypeLookup(cards) {
+  const codes = /* @__PURE__ */ new Map();
+  const codeOf = (archetype) => {
+    if (!codes.has(archetype)) {
+      const counts = /* @__PURE__ */ new Map();
+      for (const card of cards) {
+        if (!card.cn.includes(archetype)) continue;
+        for (const code of new Set(card.setcodes)) counts.set(code, (counts.get(code) ?? 0) + 1);
+      }
+      const [best] = [...counts].sort((a, b) => b[1] - a[1]);
+      codes.set(archetype, best && best[1] >= 2 ? best[0] : null);
+    }
+    return codes.get(archetype);
+  };
+  return (card, archetype) => {
+    if ([card.cn, card.md, card.sc, card.jp].some((name) => name.includes(archetype))) return true;
+    if (card.descZh.includes(`\u4E5F\u5F53\u4F5C\u300C${archetype}\u300D`)) return true;
+    const code = codeOf(archetype);
+    return code !== null && inSet(card, code);
+  };
 }
 
 // src/deck.ts
@@ -1319,8 +1349,8 @@ function formatBanlist(cards, banlist, options) {
 }
 var SECTION_LABEL = { main: "\u4E3B\u5361\u7EC4", extra: "\u989D\u5916\u5361\u7EC4", side: "\u526F\u5361\u7EC4" };
 function cardList(cards, max2 = 6) {
-  const names2 = cards.slice(0, max2).map((card) => `\u300C${card.cn || card.en}\u300D`).join("\u3001");
-  return cards.length > max2 ? `${names2} \u7B49 ${cards.length} \u5F20` : names2;
+  const names3 = cards.slice(0, max2).map((card) => `\u300C${card.cn || card.en}\u300D`).join("\u3001");
+  return cards.length > max2 ? `${names3} \u7B49 ${cards.length} \u5F20` : names3;
 }
 var lockName = (lock) => `\u300C${lock.card.cn || lock.card.en}\u300D${lock.effect}`;
 function formatLocks(locks, pairs) {
@@ -1347,7 +1377,17 @@ function formatLocks(locks, pairs) {
   }
   return lines;
 }
-function formatDeck(deck, issues, banlist, locks) {
+function formatMissing(missing) {
+  if (missing.length === 0) return [];
+  const lines = ["", "\u53EF\u80FD\u6CA1\u6709\u76EE\u6807\uFF08\u6309\u5361\u540D\u548C\u5B57\u6BB5\u5224\u65AD\uFF0C\u8BF7\u786E\u8BA4\uFF09\uFF1A"];
+  for (const { card, effect, text, options } of missing) {
+    const zones = new Set(options.flatMap((option) => option.zones));
+    const where = zones.size === 2 ? "\u5361\u7EC4\u548C\u989D\u5916\u5361\u7EC4\u91CC\u90FD" : zones.has("extra") ? "\u989D\u5916\u5361\u7EC4\u91CC" : "\u5361\u7EC4\u91CC";
+    lines.push(`  - \u300C${card.cn || card.en}\u300D${effect}\uFF1A${text} \u2192 ${where}\u6CA1\u6709\u7B26\u5408\u7684\u5361\uFF08\u8FD9\u5F20\u5361\u81EA\u5DF1\u4E0D\u7B97\uFF09`);
+  }
+  return lines;
+}
+function formatDeck(deck, issues, banlist, locks, missing) {
   const size = (section) => deck[section].reduce((sum, entry) => sum + entry.count, 0);
   const byRarity = /* @__PURE__ */ new Map();
   for (const section of SECTIONS) {
@@ -1369,7 +1409,7 @@ function formatDeck(deck, issues, banlist, locks) {
       lines.push(`  ${count} ${namesLine(card)} | ${card.mdRarity || "-"} | ${banText(card, banlist)}`);
     }
   }
-  lines.push(...formatLocks(locks.locks, locks.pairs));
+  lines.push(...formatLocks(locks.locks, locks.pairs), ...formatMissing(missing));
   lines.push("", "\u68C0\u67E5\uFF1A", ...issues.length > 0 ? issues.map((issue) => `  - ${issue}`) : ["  \u6CA1\u6709\u53D1\u73B0\u5F20\u6570\u3001\u7981\u9650\u6216\u5B9E\u88C5\u65B9\u9762\u7684\u95EE\u9898\u3002"]);
   lines.push(`\uFF08${banlistNote(banlist)}\uFF09`);
   return lines.join("\n");
@@ -1401,13 +1441,10 @@ function parseAllowed(subject) {
   }
   return rest.replace(/怪兽|以及|的|·|\s/g, "") === "" ? allowed : null;
 }
-function belongsTo(card, archetype) {
-  return [card.cn, card.md, card.sc, card.jp].some((name) => name.includes(archetype)) || card.descZh.includes(`\u4E5F\u5F53\u4F5C\u300C${archetype}\u300D`);
-}
-function allows(allowed, card) {
+function allows(allowed, card, inArchetype) {
   const { kinds, race, attr } = zhKinds(card);
   if (allowed.kinds.length > 0 && !allowed.kinds.some((kind) => kinds.has(kind))) return false;
-  if (allowed.archetypes.length > 0 && !allowed.archetypes.some((archetype) => belongsTo(card, archetype))) return false;
+  if (allowed.archetypes.length > 0 && !allowed.archetypes.some((archetype) => inArchetype(card, archetype))) return false;
   if (allowed.races.length > 0 && !allowed.races.includes(race)) return false;
   if (allowed.attributes.length > 0 && !allowed.attributes.includes(attr)) return false;
   if (allowed.level && (card.level === null || card.level < allowed.level[0] || card.level > allowed.level[1])) return false;
@@ -1441,9 +1478,9 @@ function parseLocks(card) {
   }
   return locks;
 }
-function analyzeLocks(deckCards, extraDeck) {
+function analyzeLocks(deckCards, extraDeck, inArchetype) {
   const locks = deckCards.flatMap(parseLocks);
-  const allowedBy = (lock) => lock.allowed === null ? null : lock.allowed === "none" ? [] : extraDeck.filter((card) => allows(lock.allowed, card));
+  const allowedBy = (lock) => lock.allowed === null ? null : lock.allowed === "none" ? [] : extraDeck.filter((card) => allows(lock.allowed, card, inArchetype));
   const reports = locks.map((lock) => {
     const allowed = allowedBy(lock);
     return { lock, blocked: allowed === null ? [] : extraDeck.filter((card) => !allowed.includes(card)) };
@@ -1461,7 +1498,129 @@ function analyzeLocks(deckCards, extraDeck) {
   return { locks: reports, pairs };
 }
 
+// src/refs.ts
+function parseKinds(words) {
+  let match;
+  if (words === "\u5361") return { kinds: [] };
+  if (words === "\u9B54\u6CD5\xB7\u9677\u9631\u5361") return { kinds: ["\u9B54\u6CD5", "\u9677\u9631"] };
+  if (match = words.match(/^(速攻|永续|场地|装备|仪式|通常)?魔法卡$/)) return { kinds: ["\u9B54\u6CD5"], subtype: match[1] };
+  if (match = words.match(/^(永续|反击|通常)?陷阱卡$/)) return { kinds: ["\u9677\u9631"], subtype: match[1] };
+  if (match = words.match(/^(融合|同调|超量|连接|仪式|灵摆|效果|通常)怪兽$/)) return { kinds: [match[1]] };
+  if (/^调整(怪兽)?$/.test(words)) return { kinds: ["\u8C03\u6574"] };
+  if (words === "\u602A\u517D") return { kinds: ["\u602A\u517D"] };
+  return null;
+}
+function parseTarget(text) {
+  let rest = text.trim();
+  let level;
+  const levelMatch = rest.match(/(\d+)星(以上|以下)?的?/);
+  if (levelMatch) {
+    const value = Number(levelMatch[1]);
+    level = levelMatch[2] === "\u4EE5\u4E0A" ? [value, 99] : levelMatch[2] === "\u4EE5\u4E0B" ? [0, value] : [value, value];
+    rest = rest.replace(levelMatch[0], "");
+  }
+  let mode = "archetype";
+  let refs;
+  const mentions = rest.match(/^有「([^」]+)」的卡名记述的(.*)$/);
+  const contains = rest.match(/^名字带有((?:「[^」]+」(?:、|或)?)+)的(.*)$/);
+  if (mentions) {
+    mode = "mentions";
+    refs = [mentions[1]];
+    rest = mentions[2];
+  } else if (contains) {
+    mode = "nameContains";
+    refs = [...contains[1].matchAll(/「([^」]+)」/g)].map((match) => match[1]);
+    rest = contains[2];
+  } else {
+    const quoted = rest.match(/^((?:「[^」]+」、?)+)(.*)$/);
+    if (!quoted) return null;
+    refs = [...quoted[1].matchAll(/「([^」]+)」/g)].map((match) => match[1]);
+    rest = quoted[2];
+    if (rest === "") mode = "name";
+  }
+  if (rest === "") return { mode, refs, kinds: [], level };
+  const kinds = parseKinds(rest);
+  return kinds && { mode, refs, ...kinds, level };
+}
+var PLACEMENT = /(里侧|表侧)?(守备|攻击)表示$|(在|到)(自己|对方)?的?场上$|无视召唤条件$|在额外怪兽区域$/;
+function parseObject(object) {
+  let text = object.trim();
+  while (PLACEMENT.test(text)) text = text.replace(PLACEMENT, "").trim();
+  const excluded = [...text.matchAll(/「([^」]+)」以外的?/g)].map((match) => match[1]);
+  text = text.replace(/「([^」]+)」以外的?/g, "").replace(/(最多)?\d+(只|张)(以内的?)?/, "").trim();
+  if (!text.includes("\u300C")) return null;
+  const targets = text.split("\u6216").map(parseTarget);
+  return targets.every(Boolean) ? { excluded, targets } : null;
+}
+var PLACES = "(?:\u624B\u5361|\u5361\u7EC4|\u989D\u5916\u5361\u7EC4|\u5893\u5730|\u9664\u5916\u72B6\u6001)";
+var REFERENCE = new RegExp(`(?:\u4ECE|\u628A)(${PLACES}(?:[\xB7\u3001]${PLACES})*)(?:\u628A|\u9009)?([^\uFF0C\u3002\uFF1B]*?)(\u52A0\u5165\u624B\u5361|\u7279\u6B8A\u53EC\u5524|\u9001\u53BB\u5893\u5730|\u7ED9\u5BF9\u65B9\u89C2\u770B|\u9664\u5916|\u5728\u81EA\u5DF1\u573A\u4E0A\u76D6\u653E|\u76D6\u653E)`, "g");
+var SOURCE = new RegExp(`^\u4ECE(${PLACES}(?:[\xB7\u3001]${PLACES})*)(?:\u628A|\u9009)?(.*)$`);
+function parseReferences(card) {
+  const references = [];
+  for (const part of card.descZh.split(/(?=[①②③④⑤⑥⑦⑧⑨])/)) {
+    const effect = /^[①②③④⑤⑥⑦⑧⑨]/.test(part) ? part[0] : "";
+    for (const sentence of part.split(/(?<=。)/)) {
+      for (const match of sentence.matchAll(REFERENCE)) {
+        const [first, ...others] = match[2].split(/或者?(?=从(?:手卡|卡组|额外卡组))/);
+        const pieces = [[match[1], first], ...others.map((other) => other.match(SOURCE)?.slice(1, 3) ?? ["", ""])];
+        const options = pieces.map(([from, object]) => {
+          const sources = from.split(/[·、]/);
+          const zones = [];
+          if (sources.includes("\u5361\u7EC4")) zones.push("main");
+          if (sources.includes("\u989D\u5916\u5361\u7EC4")) zones.push("extra");
+          if (zones.length === 0 || !object.includes("\u300C")) return null;
+          const parsed = parseObject(object);
+          return parsed && { zones, ...parsed };
+        });
+        if (options.every(Boolean)) {
+          references.push({ card, effect, text: sentence.trim().replace(/^[①②③④⑤⑥⑦⑧⑨]：/, ""), options });
+        }
+      }
+    }
+  }
+  return references;
+}
+var names2 = (card) => [card.cn, card.md, card.sc, card.jp, card.en, ...card.aliases].filter(Boolean);
+function hasName(card, name) {
+  const target = norm(name);
+  const treatedAs = card.descZh.match(/这个卡名在规则上当作「(.+?)」使用/);
+  return names2(card).some((cardName) => norm(cardName) === target) || !!treatedAs && norm(treatedAs[1]) === target;
+}
+function matchesTarget(card, target, inArchetype) {
+  const refMatch = {
+    name: () => target.refs.some((ref) => hasName(card, ref)),
+    archetype: () => target.refs.some((ref) => inArchetype(card, ref)),
+    nameContains: () => target.refs.some((ref) => [card.cn, card.md, card.sc, card.jp].some((name) => name.includes(ref))),
+    mentions: () => target.refs.some((ref) => card.descZh.includes(`\u300C${ref}\u300D`))
+  }[target.mode]();
+  if (!refMatch) return false;
+  const { kinds } = zhKinds(card);
+  if (target.kinds.length > 0 && !target.kinds.some((kind) => kinds.has(kind))) return false;
+  if (target.subtype === "\u901A\u5E38" && [...kinds].some((kind) => !["\u9B54\u6CD5", "\u9677\u9631"].includes(kind))) return false;
+  if (target.subtype && target.subtype !== "\u901A\u5E38" && !kinds.has(target.subtype)) return false;
+  if (target.level && (card.level === null || card.level < target.level[0] || card.level > target.level[1])) return false;
+  return true;
+}
+function missingTargets(deck, inArchetype) {
+  const zones = { main: deck.main, extra: deck.extra };
+  const sources = [...new Map([...deck.main, ...deck.extra].map(({ card }) => [card.id, card])).values()];
+  const available = (source, option) => option.zones.flatMap((zone) => zones[zone]).reduce((sum, { card, count }) => {
+    if (option.excluded.some((name) => hasName(card, name))) return sum;
+    if (!option.targets.some((target) => matchesTarget(card, target, inArchetype))) return sum;
+    return sum + count - (card.id === source.id ? 1 : 0);
+  }, 0);
+  return sources.flatMap(parseReferences).filter((reference) => {
+    if (reference.options.some((option) => option.zones.every((zone) => zones[zone].length === 0))) return false;
+    return reference.options.every((option) => available(reference.card, option) <= 0);
+  });
+}
+
 // src/service.ts
+var lookups = /* @__PURE__ */ new WeakMap();
+function archetypesOf(cards) {
+  if (!lookups.has(cards)) lookups.set(cards, archetypeLookup(cards));
+  return lookups.get(cards);
+}
 var distinctCards = (deck, sections) => [...new Map(sections.flatMap((section) => deck[section]).map(({ card }) => [card.id, card])).values()];
 async function lookup(queries) {
   const banlist = await loadBanlist();
@@ -1486,8 +1645,9 @@ async function importDeck(input) {
       deck = await readDeck(input, cards);
     }
   }
-  const locks = analyzeLocks(distinctCards(deck, ["main", "extra"]), distinctCards(deck, ["extra"]));
-  return formatDeck(deck, checkDeck(deck, cards, banlist), banlist, locks);
+  const inArchetype = archetypesOf(cards);
+  const locks = analyzeLocks(distinctCards(deck, ["main", "extra"]), distinctCards(deck, ["extra"]), inArchetype);
+  return formatDeck(deck, checkDeck(deck, cards, banlist), banlist, locks, missingTargets(deck, inArchetype));
 }
 async function banlistText(options) {
   const banlist = await loadBanlist();

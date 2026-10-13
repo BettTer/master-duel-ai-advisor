@@ -3,6 +3,8 @@
 import type { Card } from "./cards.ts";
 import { zhKinds } from "./query.ts";
 
+type InArchetype = (card: Card, archetype: string) => boolean;
+
 export type Timing = "whole-turn" | "rest-of-turn" | "until-next-turn" | "while-present";
 
 /** Which Extra Deck monsters a lock still allows. Within a list any entry may match; all lists must match. */
@@ -54,15 +56,10 @@ export function parseAllowed(subject: string): Allowed | null {
   return rest.replace(/怪兽|以及|的|·|\s/g, "") === "" ? allowed : null;
 }
 
-function belongsTo(card: Card, archetype: string): boolean {
-  return [card.cn, card.md, card.sc, card.jp].some((name) => name.includes(archetype))
-    || card.descZh.includes(`也当作「${archetype}」`);
-}
-
-export function allows(allowed: Allowed, card: Card): boolean {
+export function allows(allowed: Allowed, card: Card, inArchetype: InArchetype): boolean {
   const { kinds, race, attr } = zhKinds(card);
   if (allowed.kinds.length > 0 && !allowed.kinds.some((kind) => kinds.has(kind))) return false;
-  if (allowed.archetypes.length > 0 && !allowed.archetypes.some((archetype) => belongsTo(card, archetype))) return false;
+  if (allowed.archetypes.length > 0 && !allowed.archetypes.some((archetype) => inArchetype(card, archetype))) return false;
   if (allowed.races.length > 0 && !allowed.races.includes(race)) return false;
   if (allowed.attributes.length > 0 && !allowed.attributes.includes(attr)) return false;
   if (allowed.level && (card.level === null || card.level < allowed.level[0] || card.level > allowed.level[1])) return false;
@@ -115,10 +112,10 @@ export interface LockPair {
 }
 
 /** The locks in a deck, what each rules out of its Extra Deck, and the pairs that narrow it further. */
-export function analyzeLocks(deckCards: Card[], extraDeck: Card[]): { locks: LockReport[]; pairs: LockPair[] } {
+export function analyzeLocks(deckCards: Card[], extraDeck: Card[], inArchetype: InArchetype): { locks: LockReport[]; pairs: LockPair[] } {
   const locks = deckCards.flatMap(parseLocks);
   const allowedBy = (lock: Lock): Card[] | null =>
-    lock.allowed === null ? null : lock.allowed === "none" ? [] : extraDeck.filter((card) => allows(lock.allowed as Allowed, card));
+    lock.allowed === null ? null : lock.allowed === "none" ? [] : extraDeck.filter((card) => allows(lock.allowed as Allowed, card, inArchetype));
   const reports = locks.map((lock) => {
     const allowed = allowedBy(lock);
     return { lock, blocked: allowed === null ? [] : extraDeck.filter((card) => !allowed.includes(card)) };
